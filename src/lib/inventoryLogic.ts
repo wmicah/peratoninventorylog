@@ -1,5 +1,5 @@
 import { AppState, Session, Badge } from "./store"
-import { getLocalDateString } from "./time"
+import { getInventoryDayString, DEFAULT_TIMEZONE } from "./time"
 
 export function getLatestSubmittedSession(
 	state: AppState,
@@ -17,12 +17,14 @@ export function getLatestSubmittedSession(
 	return sessions[0]
 }
 
-/** Latest submitted session for this site on the given local date (YYYY-MM-DD). */
+/** Latest submitted session for this site on the given local date (YYYY-MM-DD) in the site's timezone. */
 export function getLatestSubmittedSessionForDate(
 	state: AppState,
 	siteId: string,
 	dateStr: string,
 ): Session | undefined {
+	const site = state.sites.find((s) => s.id === siteId)
+	const tz = site?.timeZone ?? DEFAULT_TIMEZONE
 	const sessions = Object.values(state.sessions)
 		.filter(
 			(s) =>
@@ -30,7 +32,7 @@ export function getLatestSubmittedSessionForDate(
 				s.status === "submitted" &&
 				!s.isSuperseded &&
 				s.submittedAt &&
-				getLocalDateString(s.submittedAt) === dateStr,
+				getInventoryDayString(s.submittedAt, tz) === dateStr,
 		)
 		.sort(
 			(a, b) =>

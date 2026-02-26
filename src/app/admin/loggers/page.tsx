@@ -8,9 +8,20 @@ import {
 	createAdminAccount,
 	listLoggers,
 	getIsSuperAdmin,
+	updateLoggerAccount,
 	type Profile,
 } from "@/app/actions/auth"
-import { UserPlus, ShieldCheck, Users, Shield, Loader2 } from "lucide-react"
+import {
+	UserPlus,
+	ShieldCheck,
+	Users,
+	Shield,
+	Loader2,
+	Pencil,
+	UserX,
+	UserCheck,
+} from "lucide-react"
+import Link from "next/link"
 import { useEffect, useState } from "react"
 
 export default function AdminLoggersPage() {
@@ -34,6 +45,13 @@ export default function AdminLoggersPage() {
 		text: string
 	} | null>(null)
 	const [submitting, setSubmitting] = useState(false)
+	const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
+	const [editForm, setEditForm] = useState({
+		full_name: "",
+		assigned_site_ids: [] as string[],
+	})
+	const [actionLoading, setActionLoading] = useState(false)
+	const [togglingId, setTogglingId] = useState<string | null>(null)
 
 	useEffect(() => {
 		if (!currentUser) {
@@ -66,7 +84,7 @@ export default function AdminLoggersPage() {
 		if (res.ok) {
 			setMessage({
 				type: "ok",
-				text: "Logger account created. They can sign in with the password you set.",
+				text: "Account created. They can sign in with the password you set.",
 			})
 			setLoggerForm({
 				email: "",
@@ -90,6 +108,56 @@ export default function AdminLoggersPage() {
 		if (res.ok) {
 			setMessage({ type: "ok", text: "Admin account created." })
 			setAdminForm({ email: "", full_name: "", password: "" })
+		} else {
+			setMessage({ type: "err", text: res.error })
+		}
+	}
+
+	const openEdit = (p: Profile) => {
+		setEditingProfile(p)
+		setEditForm({
+			full_name: p.full_name,
+			assigned_site_ids: p.assigned_site_ids ?? [],
+		})
+	}
+
+	const handleSaveEdit = async () => {
+		if (!editingProfile) return
+		setMessage(null)
+		setActionLoading(true)
+		const res = await updateLoggerAccount(editingProfile.id, {
+			full_name: editForm.full_name,
+			assigned_site_ids: editForm.assigned_site_ids.length
+				? editForm.assigned_site_ids
+				: sites.map((s) => s.id),
+		})
+		setActionLoading(false)
+		if (res.ok) {
+			setMessage({ type: "ok", text: "Account updated." })
+			setEditingProfile(null)
+			const list = await listLoggers()
+			setLoggers(list ?? [])
+		} else {
+			setMessage({ type: "err", text: res.error })
+		}
+	}
+
+	const handleToggleDisabled = async (p: Profile) => {
+		setMessage(null)
+		setTogglingId(p.id)
+		const res = await updateLoggerAccount(p.id, {
+			disabled: !p.disabled,
+		})
+		setTogglingId(null)
+		if (res.ok) {
+			setMessage({
+				type: "ok",
+				text: p.disabled
+					? "Account re-enabled."
+					: "Account disabled. Audit history is preserved.",
+			})
+			const list = await listLoggers()
+			setLoggers(list ?? [])
 		} else {
 			setMessage({ type: "err", text: res.error })
 		}
@@ -126,8 +194,8 @@ export default function AdminLoggersPage() {
 						Account Management
 					</h1>
 					<p className="text-slate-500 font-semibold text-sm mt-1">
-						Create logger accounts for inventory takers. Only the super admin
-						can create admin accounts.
+						Create inventory accounts for takers. Only the super admin can
+						create admin accounts.
 					</p>
 				</div>
 
@@ -143,10 +211,13 @@ export default function AdminLoggersPage() {
 					</div>
 				)}
 
-				{/* Create Logger */}
-				<div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+				{/* Create Account */}
+				<div
+					id="create-account"
+					className="bg-white rounded-xl border border-slate-200 shadow-sm p-6"
+				>
 					<h2 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-4">
-						<UserPlus className="w-5 h-5" /> Create Logger Account
+						<UserPlus className="w-5 h-5" /> Create Account
 					</h2>
 					<form
 						onSubmit={handleCreateLogger}
@@ -235,7 +306,7 @@ export default function AdminLoggersPage() {
 						</div>
 						<Button type="submit" disabled={submitting}>
 							{submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-							Create Logger
+							Create Account
 						</Button>
 					</form>
 				</div>
@@ -312,19 +383,25 @@ export default function AdminLoggersPage() {
 					</div>
 				)}
 
-				{/* List Loggers */}
+				{/* List Accounts */}
 				<div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
 					<h2 className="text-lg font-bold text-slate-900 flex items-center gap-2 p-6 pb-0">
-						<Users className="w-5 h-5" /> Logger Accounts
+						<Users className="w-5 h-5" /> Accounts
 					</h2>
 					{loading ? (
 						<div className="p-8 flex justify-center">
 							<Loader2 className="w-8 h-8 animate-spin text-slate-300" />
 						</div>
 					) : loggers.length === 0 ? (
-						<p className="p-8 text-slate-500 font-medium">
-							No logger accounts yet. Create one above.
-						</p>
+						<div className="p-8 flex flex-col items-center gap-4 text-center">
+							<p className="text-slate-500 font-medium">No accounts yet.</p>
+							<Link
+								href="#create-account"
+								className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0F1C3F] text-white text-sm font-bold hover:bg-slate-800 transition-colors"
+							>
+								<UserPlus className="w-4 h-4" /> Create account
+							</Link>
+						</div>
 					) : (
 						<table className="w-full text-left border-collapse">
 							<thead>
@@ -338,11 +415,20 @@ export default function AdminLoggersPage() {
 									<th className="px-6 py-4 text-[9px] font-bold uppercase tracking-widest text-slate-400">
 										Sites
 									</th>
+									<th className="px-6 py-4 text-[9px] font-bold uppercase tracking-widest text-slate-400 w-24">
+										Status
+									</th>
+									<th className="px-6 py-4 text-[9px] font-bold uppercase tracking-widest text-slate-400 w-28">
+										Actions
+									</th>
 								</tr>
 							</thead>
 							<tbody className="divide-y divide-slate-100">
 								{loggers.map((p) => (
-									<tr key={p.id}>
+									<tr
+										key={p.id}
+										className={p.disabled ? "bg-slate-50/70" : undefined}
+									>
 										<td className="px-6 py-4 font-semibold text-slate-900">
 											{p.full_name}
 										</td>
@@ -352,12 +438,149 @@ export default function AdminLoggersPage() {
 												? "All"
 												: p.assigned_site_ids.join(", ")}
 										</td>
+										<td className="px-6 py-4">
+											<span
+												className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+													p.disabled
+														? "bg-amber-100 text-amber-800"
+														: "bg-emerald-100 text-emerald-800"
+												}`}
+											>
+												{p.disabled ? (
+													<>
+														<UserX className="w-3 h-3" /> Disabled
+													</>
+												) : (
+													<>
+														<UserCheck className="w-3 h-3" /> Enabled
+													</>
+												)}
+											</span>
+										</td>
+										<td className="px-6 py-4">
+											<div className="flex items-center gap-2">
+												<button
+													type="button"
+													onClick={() => openEdit(p)}
+													className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+													title="Edit account"
+												>
+													<Pencil className="w-4 h-4" />
+												</button>
+												<button
+													type="button"
+													onClick={() => handleToggleDisabled(p)}
+													disabled={togglingId === p.id}
+													className={`p-2 rounded-lg border transition-colors disabled:opacity-50 ${
+														p.disabled
+															? "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+															: "border-amber-200 text-amber-600 hover:bg-amber-50"
+													}`}
+													title={
+														p.disabled
+															? "Re-enable account"
+															: "Disable account (keeps audit data)"
+													}
+												>
+													{togglingId === p.id ? (
+														<Loader2 className="w-4 h-4 animate-spin" />
+													) : p.disabled ? (
+														<UserCheck className="w-4 h-4" />
+													) : (
+														<UserX className="w-4 h-4" />
+													)}
+												</button>
+											</div>
+										</td>
 									</tr>
 								))}
 							</tbody>
 						</table>
 					)}
 				</div>
+
+				{/* Edit account modal */}
+				{editingProfile && (
+					<div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+						<div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-md w-full p-6">
+							<h3 className="text-lg font-bold text-slate-900 mb-4">
+								Edit account
+							</h3>
+							<p className="text-sm text-slate-500 mb-4">
+								{editingProfile.email}
+							</p>
+							<div className="space-y-4">
+								<div>
+									<label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+										Full name
+									</label>
+									<input
+										type="text"
+										value={editForm.full_name}
+										onChange={(e) =>
+											setEditForm((f) => ({ ...f, full_name: e.target.value }))
+										}
+										className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+									/>
+								</div>
+								<div>
+									<label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+										Assigned facilities (leave empty for all)
+									</label>
+									<div className="flex flex-wrap gap-2">
+										{sites.map((s) => (
+											<label
+												key={s.id}
+												className="flex items-center gap-1.5 cursor-pointer"
+											>
+												<input
+													type="checkbox"
+													checked={editForm.assigned_site_ids.includes(s.id)}
+													onChange={(e) =>
+														setEditForm((f) => ({
+															...f,
+															assigned_site_ids: e.target.checked
+																? [...f.assigned_site_ids, s.id]
+																: f.assigned_site_ids.filter(
+																		(id) => id !== s.id,
+																	),
+														}))
+													}
+													className="rounded border-slate-300"
+												/>
+												<span className="text-sm font-medium text-slate-700">
+													{s.name}
+												</span>
+											</label>
+										))}
+									</div>
+								</div>
+							</div>
+							<div className="flex gap-3 mt-6">
+								<Button
+									type="button"
+									onClick={handleSaveEdit}
+									disabled={actionLoading}
+									className="flex-1"
+								>
+									{actionLoading ? (
+										<Loader2 className="w-4 h-4 animate-spin" />
+									) : (
+										"Save"
+									)}
+								</Button>
+								<button
+									type="button"
+									onClick={() => setEditingProfile(null)}
+									disabled={actionLoading}
+									className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 disabled:opacity-60"
+								>
+									Cancel
+								</button>
+							</div>
+						</div>
+					</div>
+				)}
 			</div>
 		</AppLayout>
 	)

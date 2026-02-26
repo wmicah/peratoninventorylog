@@ -3,7 +3,12 @@
 import { AppLayout } from "@/components/AppLayout"
 import { useStore, type AppState } from "@/lib/store"
 import { computeHealth } from "@/lib/inventoryLogic"
-import { formatLocalTime, getLocalDateString } from "@/lib/time"
+import {
+	formatLocalTime,
+	getLocalDateString,
+	getInventoryDayString,
+	DEFAULT_TIMEZONE,
+} from "@/lib/time"
 import {
 	ArrowUpRight,
 	AlertCircle,
@@ -23,13 +28,10 @@ import {
 	Download,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { useState, useMemo, useEffect } from "react"
 
 export default function Dashboard() {
 	const [mounted, setMounted] = useState(false)
-	const router = useRouter()
-
 	const currentUser = useStore((state) => state.currentUser)
 	const selectedSite = useStore((state) => state.selectedSite)
 	const sites = useStore((state) => state.sites)
@@ -40,13 +42,6 @@ export default function Dashboard() {
 	useEffect(() => {
 		setMounted(true)
 	}, [])
-
-	// Loggers use /start, not dashboard
-	useEffect(() => {
-		if (mounted && currentUser?.role !== "admin") {
-			router.replace("/start")
-		}
-	}, [mounted, currentUser?.role, router])
 
 	// Use local date so "today" is the user's date, not UTC (which could show tomorrow)
 	const getTodayLocal = () => {
@@ -74,11 +69,13 @@ export default function Dashboard() {
 		if (!site || !health) return
 		setExporting(true)
 		try {
-			// Get all sessions for this site on the selected day
+			const tz = site?.timeZone ?? DEFAULT_TIMEZONE
+			// Get all sessions for this site on the selected day (in site's timezone)
 			const daySessions = Object.values(sessions).filter(
 				(s) =>
 					s.siteId === selectedSite &&
-					getLocalDateString(s.submittedAt || s.createdAt) === selectedDate,
+					getInventoryDayString(s.submittedAt || s.createdAt, tz) ===
+						selectedDate,
 			)
 
 			const ExcelJS = (await import("exceljs")).default
@@ -173,7 +170,7 @@ export default function Dashboard() {
 
 			const logHeaders = [
 				"Session ID",
-				"Logger",
+				"Account",
 				"Timestamp",
 				"Status",
 				"Unreconciled Count",
@@ -215,7 +212,7 @@ export default function Dashboard() {
 			ws.getCell(row, 1).border = thinBorder
 			row += 1
 
-			const assetHeaders = ["Asset Code", "Site", "Last Known Logger", "Status"]
+			const assetHeaders = ["Asset Code", "Site", "Last Reported By", "Status"]
 			assetHeaders.forEach((h, i) => {
 				const c = ws.getCell(row, i + 1)
 				c.value = h
@@ -282,7 +279,10 @@ export default function Dashboard() {
 			.slice(0, 5)
 	}, [mounted, sessions, currentUser?.name])
 
-	const yesterdayStr = getYesterdayLocal()
+	// Previous inventory day (8am–8am window that ended at 8am this morning)
+	const yesterdayStr = getInventoryDayString(
+		new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+	)
 	const notRunDismissalKey = `peraton_notRunYesterday_${currentUser?.email ?? currentUser?.name ?? "anon"}`
 	const [dismissedNotRunYesterday, setDismissedNotRunYesterday] =
 		useState(false)
@@ -308,16 +308,19 @@ export default function Dashboard() {
 		if (!mounted) return new Set<string>()
 		const set = new Set<string>()
 		Object.values(sessions).forEach((s) => {
-			if (
-				s.status === "submitted" &&
-				s.submittedAt &&
-				getLocalDateString(s.submittedAt) === yesterdayStr
-			) {
+			if (s.status !== "submitted" || !s.submittedAt) return
+			const site = sites.find((x) => x.id === s.siteId)
+			const tz = site?.timeZone ?? DEFAULT_TIMEZONE
+			const yesterdayInTz = getInventoryDayString(
+				new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+				tz,
+			)
+			if (getInventoryDayString(s.submittedAt, tz) === yesterdayInTz) {
 				set.add(s.siteId)
 			}
 		})
 		return set
-	}, [mounted, sessions, yesterdayStr])
+	}, [mounted, sessions, sites])
 	const sitesNotRunYesterday = useMemo(
 		() => sites.filter((s) => !siteIdsRunYesterday.has(s.id)),
 		[sites, siteIdsRunYesterday],
@@ -371,7 +374,132 @@ export default function Dashboard() {
 	}, [mounted, sessions, badges, sites, selectedSite, selectedDate])
 
 	if (!mounted) return null
-	if (currentUser?.role !== "admin") return null
+
+	// --- OFFICER DASHBOARD (inventory accounts) ---
+	if (currentUser?.role !== "admin") {
+		const assignedSites = sites.filter((s) =>
+			currentUser?.assignedSiteIds?.includes(s.id),
+		)
+		const mySessions = Object.values(sessions)
+			.filter(
+				(s) =>
+					s.status === "submitted" &&
+					currentUser?.name &&
+					s.createdBy.trim().toLowerCase() ===
+						currentUser.name.trim().toLowerCase(),
+			)
+			.sort(
+				(a, b) =>
+					new Date(b.submittedAt ?? b.createdAt).getTime() -
+					new Date(a.submittedAt ?? a.createdAt).getTime(),
+			)
+			.slice(0, 10)
+		return (
+			<AppLayout>
+				<div className="flex flex-col gap-8 bg-dots min-h-[calc(100vh-4rem)] -m-8 md:-m-10 p-8 md:p-10">
+					<div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+						<div>
+							<h1 className="text-2xl font-black text-slate-900 tracking-tight mb-1">
+								Your dashboard
+							</h1>
+							<p className="text-sm text-slate-500 font-medium">
+								Assigned facilities and recent audits
+							</p>
+						</div>
+						<Link
+							href="/start"
+							className="flex items-center gap-2 bg-[#0F1C3F] text-white px-5 py-3 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-slate-800 transition-all shadow-sm"
+						>
+							<ClipboardCheck className="w-4 h-4" /> Start inventory
+						</Link>
+					</div>
+
+					{/* Assigned facilities + badge status */}
+					<div>
+						<h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+							<Server className="w-3.5 h-3.5" /> Your facilities
+						</h2>
+						<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+							{assignedSites.length === 0 ? (
+								<div className="col-span-full bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-500 text-sm">
+									No facilities assigned. Contact an administrator.
+								</div>
+							) : (
+								assignedSites.map((site) => {
+									const siteBadges = badges.filter(
+										(b) => b.siteId === site.id && b.active !== false,
+									)
+									const inactiveCount = badges.filter(
+										(b) => b.siteId === site.id && b.active === false,
+									).length
+									return (
+										<div
+											key={site.id}
+											className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm"
+										>
+											<div className="flex items-start justify-between gap-2 mb-3">
+												<div>
+													<h3 className="font-bold text-slate-900 text-sm">
+														{site.name}
+													</h3>
+													<span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+														{site.id}
+													</span>
+												</div>
+											</div>
+											<div className="flex flex-wrap gap-3 text-[11px]">
+												<span className="font-semibold text-slate-600">
+													{siteBadges.length} active for inventory
+												</span>
+												{inactiveCount > 0 && (
+													<span className="text-amber-600 font-semibold">
+														{inactiveCount} turned off
+													</span>
+												)}
+											</div>
+										</div>
+									)
+								})
+							)}
+						</div>
+					</div>
+
+					{/* Recent audits */}
+					<div>
+						<h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+							<HistoryIcon className="w-3.5 h-3.5" /> Your recent audits
+						</h2>
+						{mySessions.length === 0 ? (
+							<div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-500 text-sm">
+								No submitted audits yet. Start an inventory from the button
+								above.
+							</div>
+						) : (
+							<ul className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden shadow-sm">
+								{mySessions.map((s) => {
+									const sessSite = sites.find((x) => x.id === s.siteId)
+									return (
+										<li key={s.id}>
+											<Link
+												href={`/sessions/${s.id}`}
+												className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-slate-50 transition-colors"
+											>
+												<span className="font-medium text-slate-900 text-sm">
+													{sessSite?.name ?? s.siteId} •{" "}
+													{formatLocalTime(s.submittedAt ?? s.createdAt)}
+												</span>
+												<ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+											</Link>
+										</li>
+									)
+								})}
+							</ul>
+						)}
+					</div>
+				</div>
+			</AppLayout>
+		)
+	}
 
 	// --- NO DATA: prompt to run schema seed in Supabase ---
 	if (sites.length === 0) {
@@ -658,7 +786,7 @@ export default function Dashboard() {
 							})}
 						</div>
 
-						{/* My Activity — for loggers only (hidden for admins) */}
+						{/* My Activity — for inventory accounts only (hidden for admins) */}
 						{currentUser && currentUser.role !== "admin" && (
 							<div className="space-y-4 mt-10">
 								<h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
@@ -735,10 +863,12 @@ export default function Dashboard() {
 	// --- SITE SPECIFIC DASHBOARD ---
 	if (!site || !health) return null
 
+	const siteTz = site.timeZone ?? DEFAULT_TIMEZONE
 	const targetSessions = Object.values(sessions).filter(
 		(s) =>
 			s.siteId === selectedSite &&
-			getLocalDateString(s.submittedAt || s.createdAt) === selectedDate,
+			getInventoryDayString(s.submittedAt || s.createdAt, siteTz) ===
+				selectedDate,
 	)
 
 	const displaySessions = targetSessions

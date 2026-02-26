@@ -18,6 +18,7 @@ export type SiteRow = {
 	id: string
 	name: string
 	address?: string | null
+	time_zone?: string | null
 }
 export type CategoryRow = { id: string; name: string }
 export type BadgeRow = {
@@ -40,13 +41,15 @@ export type SessionRow = {
 	superseded_by: string | null
 	replaces: string | null
 	items: Record<string, SessionItem>
+	/** Add in Supabase if missing: ALTER TABLE sessions ADD COLUMN IF NOT EXISTS admin_notes TEXT; */
+	admin_notes: string | null
 }
 
 export async function fetchSites(): Promise<SiteRow[]> {
 	if (!hasSupabase()) return []
 	const { data, error } = await supabase
 		.from("sites")
-		.select("id, name, address")
+		.select("id, name, address, time_zone")
 		.order("id")
 	if (error) {
 		console.warn("[db] fetchSites error:", error.message)
@@ -56,6 +59,7 @@ export async function fetchSites(): Promise<SiteRow[]> {
 		id: r.id,
 		name: r.name,
 		address: r.address ?? null,
+		timeZone: r.time_zone ?? null,
 	}))
 }
 
@@ -129,6 +133,7 @@ export async function fetchSessions(): Promise<SessionRow[]> {
 		superseded_by: r.superseded_by ?? null,
 		replaces: r.replaces ?? null,
 		items: (r.items as Record<string, SessionItem>) ?? {},
+		admin_notes: r.admin_notes ?? null,
 	}))
 }
 
@@ -145,6 +150,7 @@ export function sessionRowToSession(row: SessionRow): Session {
 		supersededBy: row.superseded_by ?? undefined,
 		replaces: row.replaces ?? undefined,
 		items: row.items,
+		adminNotes: row.admin_notes ?? undefined,
 	}
 }
 
@@ -202,6 +208,7 @@ export async function persistSession(session: Session): Promise<boolean> {
 			superseded_by: session.supersededBy ?? null,
 			replaces: session.replaces ?? null,
 			items: session.items,
+			admin_notes: session.adminNotes ?? null,
 		},
 		{ onConflict: "id" },
 	)

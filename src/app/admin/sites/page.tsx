@@ -21,6 +21,14 @@ import {
 import Link from "next/link"
 import { useState, useMemo } from "react"
 
+const TIMEZONE_OPTIONS = [
+	{ value: "America/New_York", label: "Eastern (New York)" },
+	{ value: "America/Chicago", label: "Central (Chicago)" },
+	{ value: "America/Denver", label: "Mountain (Denver)" },
+	{ value: "America/Los_Angeles", label: "Pacific (Los Angeles)" },
+	{ value: "America/Phoenix", label: "Arizona (no DST)" },
+]
+
 export default function AdminSitesPage() {
 	const {
 		currentUser,
@@ -35,6 +43,7 @@ export default function AdminSitesPage() {
 	const [editingId, setEditingId] = useState<string | null>(null)
 	const [editName, setEditName] = useState("")
 	const [editAddress, setEditAddress] = useState("")
+	const [editTimeZone, setEditTimeZone] = useState("America/New_York")
 	const [saving, setSaving] = useState(false)
 	const [addingBadgeSiteId, setAddingBadgeSiteId] = useState<string | null>(
 		null,
@@ -54,6 +63,7 @@ export default function AdminSitesPage() {
 	const [newId, setNewId] = useState("")
 	const [newName, setNewName] = useState("")
 	const [newAddress, setNewAddress] = useState("")
+	const [newTimeZone, setNewTimeZone] = useState("America/New_York")
 	const [creating, setCreating] = useState(false)
 
 	// Filter sites by search (name, id, or address)
@@ -74,6 +84,7 @@ export default function AdminSitesPage() {
 			setEditingId(id)
 			setEditName(site.name)
 			setEditAddress(site.address ?? "")
+			setEditTimeZone(site.timeZone ?? "America/New_York")
 			setMessage(null)
 		}
 	}
@@ -82,6 +93,7 @@ export default function AdminSitesPage() {
 		setEditingId(null)
 		setEditName("")
 		setEditAddress("")
+		setEditTimeZone("America/New_York")
 	}
 
 	const saveEdit = async () => {
@@ -91,6 +103,7 @@ export default function AdminSitesPage() {
 		const res = await updateSite(editingId, {
 			name: editName,
 			address: editAddress || null,
+			timeZone: editTimeZone || null,
 		})
 		setSaving(false)
 		if (res.ok) {
@@ -212,16 +225,18 @@ export default function AdminSitesPage() {
 			id,
 			name,
 			address: newAddress.trim() || null,
+			timeZone: newTimeZone || null,
 		})
 		setCreating(false)
 		if (res.ok) {
 			setMessage({
 				type: "ok",
-				text: "Facility created. All admins and loggers will see it.",
+				text: "Facility created. All admins and accounts will see it.",
 			})
 			setNewId("")
 			setNewName("")
 			setNewAddress("")
+			setNewTimeZone("America/New_York")
 			setShowCreate(false)
 			const updated = await fetchSites()
 			setSites(updated)
@@ -324,6 +339,22 @@ export default function AdminSitesPage() {
 									placeholder="Street, city, state"
 								/>
 							</div>
+							<div>
+								<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
+									Timezone (inventory 8am–8am)
+								</label>
+								<select
+									value={newTimeZone}
+									onChange={(e) => setNewTimeZone(e.target.value)}
+									className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
+								>
+									{TIMEZONE_OPTIONS.map((opt) => (
+										<option key={opt.value} value={opt.value}>
+											{opt.label}
+										</option>
+									))}
+								</select>
+							</div>
 							<div className="flex gap-2">
 								<Button type="submit" disabled={creating} variant="primary">
 									{creating ? (
@@ -407,6 +438,22 @@ export default function AdminSitesPage() {
 											className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)] transition-shadow duration-150"
 											placeholder="Street, city, state"
 										/>
+									</div>
+									<div>
+										<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
+											Timezone (inventory 8am–8am)
+										</label>
+										<select
+											value={editTimeZone}
+											onChange={(e) => setEditTimeZone(e.target.value)}
+											className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
+										>
+											{TIMEZONE_OPTIONS.map((opt) => (
+												<option key={opt.value} value={opt.value}>
+													{opt.label}
+												</option>
+											))}
+										</select>
 									</div>
 									<div className="flex gap-2">
 										<Button

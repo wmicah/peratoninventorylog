@@ -1,10 +1,11 @@
 "use client"
 
+import { updateSessionAdminNotes } from "@/app/actions/sessions"
 import { AppLayout } from "@/components/AppLayout"
 import { useStore, formatBadgeLabel } from "@/lib/store"
 import { formatLocalTime } from "@/lib/time"
 import { useParams, useRouter } from "next/navigation"
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import {
 	CopyX,
 	CheckCircle2,
@@ -14,6 +15,8 @@ import {
 	UserCheck,
 	Printer,
 	ShieldCheck,
+	FileText,
+	Loader2,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -21,13 +24,21 @@ export default function SessionDetailPage() {
 	const router = useRouter()
 	const params = useParams()
 	const sessionId = params?.id as string
-	const { sessions, sites, badges } = useStore()
+	const currentUser = useStore((s) => s.currentUser)
+	const { sessions, sites, badges, setSessionAdminNotes } = useStore()
 
 	const [activeTab, setActiveTab] = useState<"missing" | "present" | "all">(
 		"missing",
 	)
+	const [adminNotesEdit, setAdminNotesEdit] = useState("")
+	const [adminNotesSaving, setAdminNotesSaving] = useState(false)
+	const isAdmin = currentUser?.role === "admin"
 
 	const session = sessions[sessionId]
+	useEffect(() => {
+		if (session?.adminNotes !== undefined)
+			setAdminNotesEdit(session.adminNotes ?? "")
+	}, [session?.id, session?.adminNotes])
 	const site = sites.find((s) => s?.id === session?.siteId)
 	const siteBadges = useMemo(
 		() => badges.filter((b) => b.siteId === session?.siteId),
@@ -111,7 +122,7 @@ export default function SessionDetailPage() {
 							<div className="w-px h-8 bg-slate-200 hidden sm:block print:block" />
 							<div className="flex flex-col">
 								<span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-									Reporting Logger
+									Reported By
 								</span>
 								<span className="text-sm font-bold text-slate-900">
 									{session.createdBy}
@@ -181,6 +192,62 @@ export default function SessionDetailPage() {
 							</Link>
 						</div>
 					)}
+
+					{/* Admin notes for this audit */}
+					<div className="bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+						<div className="flex items-center gap-2 px-4 py-2 border-b border-slate-200 bg-white/50">
+							<FileText className="w-4 h-4 text-slate-500" />
+							<span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+								Admin notes
+							</span>
+						</div>
+						{isAdmin ? (
+							<div className="p-4">
+								<textarea
+									value={adminNotesEdit}
+									onChange={(e) => setAdminNotesEdit(e.target.value)}
+									placeholder="Add a note for this audit (e.g. verified with site lead, follow-up needed)..."
+									className="w-full min-h-[80px] px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F1C3F] resize-y"
+									disabled={adminNotesSaving}
+								/>
+								<button
+									type="button"
+									onClick={async () => {
+										setAdminNotesSaving(true)
+										const res = await updateSessionAdminNotes(
+											sessionId,
+											adminNotesEdit.trim() || null,
+										)
+										setAdminNotesSaving(false)
+										if (res.ok)
+											setSessionAdminNotes(
+												sessionId,
+												adminNotesEdit.trim() || null,
+											)
+									}}
+									disabled={adminNotesSaving}
+									className="mt-2 flex items-center gap-2 px-4 py-2 bg-[#0F1C3F] text-white text-xs font-bold uppercase tracking-wider rounded-lg hover:bg-slate-800 disabled:opacity-60"
+								>
+									{adminNotesSaving ? (
+										<Loader2 className="w-3.5 h-3.5 animate-spin" />
+									) : null}
+									Save note
+								</button>
+							</div>
+						) : (
+							<div className="p-4">
+								{session.adminNotes ? (
+									<p className="text-sm text-slate-700 whitespace-pre-wrap">
+										{session.adminNotes}
+									</p>
+								) : (
+									<p className="text-sm text-slate-400 italic">
+										No admin notes for this audit.
+									</p>
+								)}
+							</div>
+						)}
+					</div>
 				</div>
 
 				{/* Tabbed Manifest */}

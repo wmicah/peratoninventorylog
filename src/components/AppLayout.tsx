@@ -148,14 +148,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 					</div>
 
 					<nav className="ml-6 flex gap-5 text-xs">
-						{currentUser?.role === "admin" && (
-							<Link
-								href="/dashboard"
-								className={`${pathname === "/dashboard" ? "text-[var(--color-primary-900)] font-bold border-b-2 border-[var(--color-primary-900)]" : "text-slate-500 hover:text-slate-900 font-bold"} py-4 transition-all uppercase tracking-wider`}
-							>
-								Dashboard
-							</Link>
-						)}
+						<Link
+							href="/dashboard"
+							className={`${pathname === "/dashboard" ? "text-[var(--color-primary-900)] font-bold border-b-2 border-[var(--color-primary-900)]" : "text-slate-500 hover:text-slate-900 font-bold"} py-4 transition-all uppercase tracking-wider`}
+						>
+							Dashboard
+						</Link>
 						{currentUser?.role !== "admin" && (
 							<>
 								<Link
@@ -193,7 +191,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 								href="/admin/loggers"
 								className={`${pathname === "/admin/loggers" ? "text-[var(--color-primary-900)] font-bold border-b-2 border-[var(--color-primary-900)]" : "text-slate-500 hover:text-slate-900 font-bold"} py-4 transition-all uppercase tracking-wider`}
 							>
-								Loggers
+								Accounts
 							</Link>
 						)}
 						{currentUser?.role === "admin" && (

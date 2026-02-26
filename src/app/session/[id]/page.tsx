@@ -3,7 +3,11 @@
 import { AppLayout } from "@/components/AppLayout"
 import { Button } from "@/components/ui/Button"
 import { useStore, formatBadgeLabel } from "@/lib/store"
-import { formatTimeOnly, isSameLocalDay } from "@/lib/time"
+import {
+	formatTimeOnly,
+	getInventoryDayString,
+	DEFAULT_TIMEZONE,
+} from "@/lib/time"
 import { useParams, useRouter } from "next/navigation"
 import { useState, useMemo, useEffect } from "react"
 import {
@@ -107,13 +111,16 @@ export default function SessionInputPage() {
 			return
 		}
 
+		const siteTz = site.timeZone ?? DEFAULT_TIMEZONE
+		const currentInventoryDay = getInventoryDayString(session.createdAt, siteTz)
 		const existingSession = Object.values(sessions).find(
 			(s) =>
 				s.siteId === site.id &&
 				s.status === "submitted" &&
 				!s.isSuperseded &&
 				s.id !== sessionId &&
-				isSameLocalDay(s.createdAt, session.createdAt),
+				s.submittedAt &&
+				getInventoryDayString(s.submittedAt, siteTz) === currentInventoryDay,
 		)
 
 		if (existingSession) {
@@ -405,8 +412,9 @@ export default function SessionInputPage() {
 								<h3 className="text-lg font-bold">Session Collision</h3>
 							</div>
 							<p className="text-slate-600 mb-6 border-b border-slate-100 pb-4">
-								A submitted session already exists for the same site today. How
-								would you like to handle this duplicate?
+								A submitted session already exists for the same site in this
+								inventory window (8am–8am). How would you like to handle this
+								duplicate?
 							</p>
 
 							<div className="flex flex-col gap-3">
@@ -427,7 +435,7 @@ export default function SessionInputPage() {
 								>
 									<span className="block">Keep both</span>
 									<span className="font-normal text-xs text-slate-500 mt-0.5 text-left">
-										Records this as an additional session today
+										Records this as an additional session in this window
 									</span>
 								</Button>
 

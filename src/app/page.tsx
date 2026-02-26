@@ -118,7 +118,7 @@ export default function LoginPage() {
 					Internal Inventory
 				</h2>
 				<p className="mt-2 text-center text-sm text-slate-500 font-medium">
-					Secure Access for Loggers and Administrators
+					Secure Access for Inventory Accounts and Administrators
 				</p>
 			</div>
 

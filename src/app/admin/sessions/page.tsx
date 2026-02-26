@@ -60,7 +60,7 @@ export default function AdminSessionsPage() {
 		const headers = [
 			"Site ID",
 			"Site Name",
-			"Logger",
+			"Account",
 			"Status",
 			"Started (UTC)",
 			"Submitted (UTC)",
@@ -149,7 +149,7 @@ export default function AdminSessionsPage() {
 						<Search className="w-3.5 h-3.5 shrink-0 text-slate-400" />
 						<input
 							type="text"
-							placeholder="Search logger or ID..."
+							placeholder="Search account or ID..."
 							value={search}
 							onChange={(e) => setSearch(e.target.value)}
 							className="bg-transparent border-none text-xs font-medium text-slate-900 focus:ring-0 w-full min-w-0 placeholder:text-slate-400"
@@ -212,7 +212,7 @@ export default function AdminSessionsPage() {
 										Target Site
 									</th>
 									<th className="px-6 py-4 text-[9px] font-bold uppercase tracking-widest text-slate-400">
-										Reporting Logger
+										Reported By
 									</th>
 									<th className="px-6 py-4 text-[9px] font-bold uppercase tracking-widest text-slate-400">
 										Cycle Window

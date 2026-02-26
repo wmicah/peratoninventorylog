@@ -47,6 +47,8 @@ export interface Session {
 	supersededBy?: string
 	replaces?: string
 	items: Record<string, SessionItem>
+	/** Admin-only notes for this audit (visible on session detail). */
+	adminNotes?: string | null
 }
 
 export interface AppState {
@@ -61,6 +63,8 @@ export interface AppState {
 		id: string
 		name: string
 		address?: string | null
+		/** IANA timezone for 8am–8am inventory day (e.g. America/Los_Angeles). */
+		timeZone?: string | null
 	}[]
 	categories: Category[]
 	badges: Badge[]
@@ -75,11 +79,13 @@ export interface AppState {
 			id: string
 			name: string
 			address?: string | null
+			timeZone?: string | null
 		}[],
 	) => void
 	setCategories: (categories: Category[]) => void
 	setBadges: (badges: Badge[]) => void
 	setSessions: (sessions: Record<string, Session>) => void
+	setSessionAdminNotes: (sessionId: string, adminNotes: string | null) => void
 	createSession: (siteId: string) => string
 	updateSessionItem: (
 		sessionId: string,
@@ -140,13 +146,13 @@ const MOCK_USERS = [
 	},
 	{
 		email: "sg-logger@peraton.com",
-		name: "Logger Smith",
+		name: "Smith",
 		role: "logger" as const,
 		sites: ["SG"],
 	},
 	{
 		email: "multi-logger@peraton.com",
-		name: "Logger Jones",
+		name: "Jones",
 		role: "logger" as const,
 		sites: ["SG", "HQ"],
 	},
@@ -169,6 +175,18 @@ export const useStore = create<AppState>()(
 			setBadges: (badges) => set({ badges }),
 			setSessions: (sessions) => set({ sessions }),
 
+			setSessionAdminNotes: (sessionId: string, adminNotes: string | null) => {
+				const state = get()
+				const session = state.sessions[sessionId]
+				if (!session) return
+				set({
+					sessions: {
+						...state.sessions,
+						[sessionId]: { ...session, adminNotes: adminNotes ?? undefined },
+					},
+				})
+			},
+
 			login: (email: string) => {
 				const mockUser = MOCK_USERS.find(
 					(u) => u.email.toLowerCase() === email.toLowerCase(),
@@ -188,7 +206,7 @@ export const useStore = create<AppState>()(
 					const isAdmin = email.toLowerCase().includes("admin")
 					set({
 						currentUser: {
-							name: isAdmin ? "System Admin" : "Logger User",
+							name: isAdmin ? "System Admin" : "Inventory User",
 							email,
 							role: isAdmin ? "admin" : "logger",
 							assignedSiteIds: isAdmin
@@ -205,7 +223,7 @@ export const useStore = create<AppState>()(
 
 			createSession: (siteId: string) => {
 				const id = crypto.randomUUID()
-				const user = get().currentUser?.name || "Unknown Logger"
+				const user = get().currentUser?.name || "Unknown User"
 				const siteBadges = get().badges.filter(
 					(b) => b.siteId === siteId && b.active !== false,
 				)

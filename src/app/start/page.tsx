@@ -3,7 +3,7 @@
 import { AppLayout } from "@/components/AppLayout"
 import { Button } from "@/components/ui/Button"
 import { useStore } from "@/lib/store"
-import { isSameLocalDay } from "@/lib/time"
+import { getInventoryDayString, DEFAULT_TIMEZONE } from "@/lib/time"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useEffect, useMemo } from "react"
@@ -30,15 +30,20 @@ export default function StartPage() {
 	}, [isLogger, selectedSite, userSiteIds, userSites.length, setSelectedSite])
 
 	const site = userSites.find((s) => s.id === selectedSite)
+	const siteTz = site?.timeZone ?? DEFAULT_TIMEZONE
 
-	// One inventory per site per day: if anyone has already submitted for this site today, no need to run again
+	// One inventory per site per "day" (8am–8am in site's timezone): if anyone has already submitted for this site in the current window, no need to run again
+	const todayInventoryDay = getInventoryDayString(
+		new Date().toISOString(),
+		siteTz,
+	)
 	const submittedForToday = Object.values(sessions).some(
 		(s) =>
 			s.siteId === selectedSite &&
 			s.status === "submitted" &&
 			!s.isSuperseded &&
 			s.submittedAt &&
-			isSameLocalDay(s.submittedAt, new Date().toISOString()),
+			getInventoryDayString(s.submittedAt, siteTz) === todayInventoryDay,
 	)
 
 	// Admins: redirect to dashboard
