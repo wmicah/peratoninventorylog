@@ -1,103 +1,236 @@
-import Image from "next/image";
+"use client"
 
-export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+import { getOrCreateProfile } from "@/app/actions/auth"
+import { Button } from "@/components/ui/Button"
+import { useStore } from "@/lib/store"
+import { supabase } from "@/lib/supabase"
+import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { ShieldAlert, User, LogIn, ShieldCheck } from "lucide-react"
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+const hasSupabase = () => {
+	const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+	const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+	return Boolean(url && key && url.length > 0 && key.length > 0)
+}
+
+export default function LoginPage() {
+	const router = useRouter()
+	const currentUser = useStore((s) => s.currentUser)
+	const { login, setCurrentUser } = useStore()
+	const [email, setEmail] = useState("")
+	const [password, setPassword] = useState("")
+	const [isLoading, setIsLoading] = useState(false)
+	const [error, setError] = useState("")
+
+	// If already logged in, go to dashboard (avoid loop: only redirect when we have a real session when using Supabase)
+	useEffect(() => {
+		if (!currentUser) return
+
+		if (hasSupabase()) {
+			supabase.auth.getSession().then(({ data: { session } }) => {
+				if (session?.user) {
+					const role = currentUser?.role
+					router.replace(role === "logger" ? "/start" : "/dashboard")
+				} else {
+					// No Supabase session but store has user (stale) – clear so we show login and don’t loop
+					setCurrentUser(null)
+				}
+			})
+		} else {
+			router.replace("/dashboard")
+		}
+	}, [currentUser, router, setCurrentUser])
+
+	const handleLogin = async (e: React.FormEvent) => {
+		e.preventDefault()
+		setError("")
+		if (!email.trim()) return
+
+		setIsLoading(true)
+
+		if (hasSupabase()) {
+			const { data: authData, error: signInError } =
+				await supabase.auth.signInWithPassword({
+					email: email.trim(),
+					password,
+				})
+			if (signInError) {
+				setError(
+					signInError.message === "Invalid login credentials"
+						? "Invalid email or password."
+						: signInError.message,
+				)
+				setIsLoading(false)
+				return
+			}
+			if (!authData.user) {
+				setError("Sign-in failed.")
+				setIsLoading(false)
+				return
+			}
+			// Pass session so server can get/create profile even if cookies aren't available yet
+			const session = authData.session
+			const result = await getOrCreateProfile(
+				session
+					? {
+							access_token: session.access_token,
+							refresh_token: session.refresh_token ?? "",
+						}
+					: undefined,
+			)
+			if (!result.ok) {
+				await supabase.auth.signOut()
+				setError(result.error)
+				setIsLoading(false)
+				return
+			}
+			const profile = result.profile
+			setCurrentUser({
+				name: profile.full_name,
+				email: profile.email,
+				role: profile.role as "admin" | "logger",
+				assignedSiteIds: profile.assigned_site_ids ?? [],
+			})
+			router.replace(profile.role === "logger" ? "/start" : "/dashboard")
+			router.refresh()
+			return
+		}
+
+		// Fallback: mock login when Supabase not configured
+		setTimeout(() => {
+			login(email.trim())
+			const { currentUser: u } = useStore.getState()
+			router.replace(u?.role === "logger" ? "/start" : "/dashboard")
+			setIsLoading(false)
+		}, 400)
+	}
+
+	// Show nothing briefly while redirecting if already logged in
+	if (currentUser) {
+		return null
+	}
+
+	return (
+		<div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans text-slate-900 selection:bg-[#00AEB3]/30">
+			<div className="sm:mx-auto sm:w-full sm:max-w-md">
+				<div className="flex justify-center mb-5">
+					<div className="w-14 h-14 bg-[#0F1C3F] rounded-lg flex items-center justify-center shadow-md">
+						<ShieldCheck className="w-8 h-8 text-white" />
+					</div>
+				</div>
+				<h2 className="mt-2 text-center text-3xl font-bold text-[#0F1C3F] tracking-tight">
+					Internal Inventory
+				</h2>
+				<p className="mt-2 text-center text-sm text-slate-500 font-medium">
+					Secure Access for Loggers and Administrators
+				</p>
+			</div>
+
+			<div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+				<div className="bg-white py-10 px-6 shadow-sm sm:rounded-xl sm:px-12 border border-slate-200">
+					<form className="space-y-6" onSubmit={handleLogin} autoComplete="off">
+						{error && (
+							<div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm font-medium text-red-800">
+								{error}
+							</div>
+						)}
+						<div>
+							<label
+								htmlFor="email"
+								className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2"
+							>
+								Work Email
+							</label>
+							<div className="relative">
+								<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+									<User className="h-5 w-5 text-slate-300" />
+								</div>
+								<input
+									id="email"
+									name="email"
+									type="email"
+									required
+									autoComplete="off"
+									value={email}
+									onChange={(e) => setEmail(e.target.value)}
+									className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-lg bg-slate-50 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F1C3F] sm:text-sm font-semibold transition-all"
+									placeholder="name@peraton.com"
+								/>
+							</div>
+						</div>
+
+						<div>
+							<label
+								htmlFor="password"
+								className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2"
+							>
+								Password
+							</label>
+							<div className="relative">
+								<div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+									<ShieldAlert className="h-5 w-5 text-slate-300" />
+								</div>
+								<input
+									id="password"
+									name="password"
+									type="password"
+									required
+									autoComplete="new-password"
+									value={password}
+									onChange={(e) => setPassword(e.target.value)}
+									className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-lg bg-slate-50 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F1C3F] sm:text-sm font-semibold transition-all"
+									placeholder="••••••••"
+								/>
+							</div>
+						</div>
+
+						<div>
+							<Button type="submit" disabled={isLoading} className="w-full">
+								{isLoading ? (
+									<div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+								) : (
+									<>
+										<LogIn className="w-4 h-4" /> Sign In
+									</>
+								)}
+							</Button>
+						</div>
+					</form>
+
+					{!hasSupabase() && (
+						<div className="mt-8 pt-6 border-t border-slate-50">
+							<div className="bg-slate-50 rounded-lg p-4">
+								<p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+									<ShieldCheck className="w-3 h-3" /> Demo mode (no database)
+								</p>
+								<p className="text-xs text-slate-500 font-semibold">
+									Enter any email and password to try the app. Configure
+									Supabase for real accounts.
+								</p>
+							</div>
+						</div>
+					)}
+
+					{hasSupabase() && (
+						<div className="mt-8 pt-6 border-t border-slate-50">
+							<div className="bg-slate-50 rounded-lg p-4">
+								<p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+									<ShieldCheck className="w-3 h-3" /> Secure sign-in
+								</p>
+								<p className="text-xs text-slate-500 font-semibold">
+									Loggers take inventory; admins manage assets and create logger
+									accounts. Only the super admin can create admin accounts.
+								</p>
+							</div>
+						</div>
+					)}
+				</div>
+
+				<p className="mt-8 text-center text-xs text-slate-400 font-bold uppercase tracking-[0.2em]">
+					Classified Information • Authorized Use Only
+				</p>
+			</div>
+		</div>
+	)
 }
