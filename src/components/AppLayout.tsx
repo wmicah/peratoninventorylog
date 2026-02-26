@@ -26,10 +26,36 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 	const logout = useStore((state) => state.logout)
 
 	const [showSitePrompt, setShowSitePrompt] = useState(false)
+	const [nathalieMode, setNathalieMode] = useState(false)
 
 	useEffect(() => {
 		setMounted(true)
 	}, [])
+	useEffect(() => {
+		if (!mounted) return
+		try {
+			const stored = localStorage.getItem("peraton_nathalie_mode")
+			const on = stored === "1"
+			setNathalieMode(on)
+			if (on) document.body.setAttribute("data-nathalie-mode", "true")
+			else document.body.removeAttribute("data-nathalie-mode")
+		} catch {
+			// ignore
+		}
+	}, [mounted])
+	const toggleNathalieMode = () => {
+		const next = !nathalieMode
+		setNathalieMode(next)
+		try {
+			localStorage.setItem("peraton_nathalie_mode", next ? "1" : "0")
+			if (typeof document !== "undefined") {
+				if (next) document.body.setAttribute("data-nathalie-mode", "true")
+				else document.body.removeAttribute("data-nathalie-mode")
+			}
+		} catch {
+			// ignore
+		}
+	}
 
 	// Sites available in the header dropdown: admins see all sites, others see only assigned
 	const userSites = sites.filter(
@@ -74,7 +100,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 	if (mounted && !currentUser && pathname !== "/") return null
 
 	return (
-		<div className="min-h-screen flex flex-col font-sans selection:bg-[var(--color-primary-100)] selection:text-[var(--color-primary-900)]">
+		<div
+			className="min-h-screen flex flex-col font-sans selection:bg-[var(--color-primary-100)] selection:text-[var(--color-primary-900)]"
+			data-nathalie-mode={nathalieMode ? "true" : undefined}
+		>
 			<header className="sticky top-0 z-50 flex h-16 items-center border-b border-slate-200 bg-white/95 backdrop-blur-md px-6 shadow-sm">
 				<div className="flex items-center gap-6 flex-1">
 					<Link
@@ -179,6 +208,36 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 				</div>
 
 				<div className="flex items-center gap-5">
+					{currentUser?.role === "admin" && (
+						<button
+							type="button"
+							onClick={toggleNathalieMode}
+							className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-xs font-bold uppercase tracking-wider transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+								nathalieMode
+									? "bg-pink-200 border-pink-400 text-pink-900 focus:ring-pink-300"
+									: "bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300 focus:ring-slate-200"
+							}`}
+							title={
+								nathalieMode
+									? "Turn off Nathalie Mode"
+									: "Turn on Nathalie Mode"
+							}
+						>
+							<span
+								className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
+									nathalieMode ? "bg-pink-500" : "bg-slate-300"
+								}`}
+								aria-hidden
+							>
+								<span
+									className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition translate-y-0.5 ${
+										nathalieMode ? "translate-x-4" : "translate-x-0.5"
+									}`}
+								/>
+							</span>
+							Nathalie Mode
+						</button>
+					)}
 					{currentUser?.role !== "admin" && (
 						<Link
 							href="/start"

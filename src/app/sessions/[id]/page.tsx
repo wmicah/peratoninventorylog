@@ -295,11 +295,6 @@ export default function SessionDetailPage() {
 							</p>
 						</div>
 					</div>
-					<p className="text-[8px] text-slate-400 italic text-center border-t border-slate-100 pt-4">
-						Classified Information. For Official Use Only. Unauthorized
-						distribution is prohibited. This electronic record serves as a valid
-						security audit instance as of {new Date().toLocaleDateString()}.
-					</p>
 				</div>
 			</div>
 

@@ -366,8 +366,9 @@ export default function Dashboard() {
 		return computeHealth(
 			{ sessions, badges, sites, selectedSite } as AppState,
 			selectedSite,
+			selectedDate,
 		)
-	}, [mounted, sessions, badges, sites, selectedSite])
+	}, [mounted, sessions, badges, sites, selectedSite, selectedDate])
 
 	if (!mounted) return null
 	if (currentUser?.role !== "admin") return null

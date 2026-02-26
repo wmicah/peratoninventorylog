@@ -1,4 +1,5 @@
 import { AppState, Session, Badge } from "./store"
+import { getLocalDateString } from "./time"
 
 export function getLatestSubmittedSession(
 	state: AppState,
@@ -14,6 +15,35 @@ export function getLatestSubmittedSession(
 		)
 
 	return sessions[0]
+}
+
+/** Latest submitted session for this site on the given local date (YYYY-MM-DD). */
+export function getLatestSubmittedSessionForDate(
+	state: AppState,
+	siteId: string,
+	dateStr: string,
+): Session | undefined {
+	const sessions = Object.values(state.sessions)
+		.filter(
+			(s) =>
+				s.siteId === siteId &&
+				s.status === "submitted" &&
+				!s.isSuperseded &&
+				s.submittedAt &&
+				getLocalDateString(s.submittedAt) === dateStr,
+		)
+		.sort(
+			(a, b) =>
+				new Date(b.submittedAt!).getTime() - new Date(a.submittedAt!).getTime(),
+		)
+	return sessions[0]
+}
+
+function getPreviousDateStr(dateStr: string): string {
+	const [y, m, d] = dateStr.split("-").map(Number)
+	const date = new Date(y, m - 1, d)
+	date.setDate(date.getDate() - 1)
+	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 }
 
 export function getPreviousSubmittedSession(
@@ -56,13 +86,19 @@ export interface HealthStats {
 	latestSession?: Session
 }
 
-export function computeHealth(state: AppState, siteId: string): HealthStats {
+export function computeHealth(
+	state: AppState,
+	siteId: string,
+	dateStr?: string,
+): HealthStats {
 	const siteBadges = state.badges.filter(
 		(b) => b.siteId === siteId && b.active !== false,
 	)
 	const totalCount = siteBadges.length
 
-	const latest = getLatestSubmittedSession(state, siteId)
+	const latest = dateStr
+		? getLatestSubmittedSessionForDate(state, siteId, dateStr)
+		: getLatestSubmittedSession(state, siteId)
 	if (!latest) {
 		return {
 			missingCount: 0,
@@ -99,7 +135,13 @@ export function computeHealth(state: AppState, siteId: string): HealthStats {
 		}
 	})
 
-	const previous = getPreviousSubmittedSession(state, siteId, latest.id)
+	const previous = dateStr
+		? getLatestSubmittedSessionForDate(
+				state,
+				siteId,
+				getPreviousDateStr(dateStr),
+			)
+		: getPreviousSubmittedSession(state, siteId, latest.id)
 	let newlyMissingCount = 0
 	let resolvedCount = 0
 

@@ -115,7 +115,7 @@ export async function getOrCreateProfile(sessionFromClient?: {
 	const url = process.env.NEXT_PUBLIC_SUPABASE_URL
 	const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 	if (!url || !anonKey)
-		return { ok: false, error: "Server missing Supabase URL or anon key." }
+		return { ok: false, error: "Sign-in is unavailable. Try again later." }
 
 	const supabase = createClient(url, anonKey, {
 		auth: { persistSession: false },
@@ -128,8 +128,8 @@ export async function getOrCreateProfile(sessionFromClient?: {
 		refresh_token: sessionFromClient.refresh_token,
 	})
 	if (sessionError)
-		return { ok: false, error: `Session invalid: ${sessionError.message}` }
-	if (!session?.user) return { ok: false, error: "Session has no user." }
+		return { ok: false, error: "Session invalid. Please sign in again." }
+	if (!session?.user) return { ok: false, error: "Sign-in failed. Try again." }
 
 	const user = session.user
 
@@ -181,14 +181,12 @@ export async function getOrCreateProfile(sessionFromClient?: {
 	if (!superAdminEmail || userEmail !== superAdminEmail)
 		return {
 			ok: false,
-			error:
-				"No profile for this account. Your email is not the super admin. Ask an admin to create your account.",
+			error: "No account found. Contact your administrator.",
 		}
 	if (!supabaseAdmin)
 		return {
 			ok: false,
-			error:
-				"Server missing SUPABASE_SERVICE_ROLE_KEY. Add it to .env and restart.",
+			error: "Sign-in is unavailable. Try again later.",
 		}
 
 	const { error: insertError } = await supabaseAdmin.from("profiles").insert({
@@ -221,7 +219,7 @@ export async function getOrCreateProfile(sessionFromClient?: {
 	if (insertError)
 		return {
 			ok: false,
-			error: `Could not create profile: ${insertError.message}`,
+			error: "Could not complete sign-in. Try again later.",
 		}
 
 	// Read back with admin so we don't depend on RLS
@@ -241,7 +239,10 @@ export async function getOrCreateProfile(sessionFromClient?: {
 				assigned_site_ids: newProfile.assigned_site_ids ?? [],
 			},
 		}
-	return { ok: false, error: "Profile was created but could not be read back." }
+	return {
+		ok: false,
+		error: "Sign-in completed but something went wrong. Try again.",
+	}
 }
 
 /** Create a logger account. Only callable by an admin. Returns { ok: true, tempPassword } or { ok: false, error }. */
@@ -254,7 +255,8 @@ export async function createLoggerAccount(formData: {
 	{ ok: true; tempPassword?: string } | { ok: false; error: string }
 > {
 	const supabase = await createServerSupabase()
-	if (!supabase) return { ok: false, error: "Server not configured" }
+	if (!supabase)
+		return { ok: false, error: "Service unavailable. Try again later." }
 
 	const {
 		data: { user: caller },
@@ -272,11 +274,11 @@ export async function createLoggerAccount(formData: {
 		!!superAdminEmail && caller.email?.toLowerCase() === superAdminEmail
 	const isAdmin = callerProfile?.role === "admin" || isSuperAdmin
 	if (!isAdmin)
-		return { ok: false, error: "Only admins can create logger accounts" }
+		return { ok: false, error: "You don't have permission to do that." }
 
 	const admin = supabaseAdmin
 	if (!admin)
-		return { ok: false, error: "Server missing SUPABASE_SERVICE_ROLE_KEY" }
+		return { ok: false, error: "Service unavailable. Try again later." }
 
 	const { data: newUser, error: createError } =
 		await admin.auth.admin.createUser({
@@ -310,7 +312,8 @@ export async function createAdminAccount(formData: {
 	password: string
 }): Promise<{ ok: true } | { ok: false; error: string }> {
 	const supabase = await createServerSupabase()
-	if (!supabase) return { ok: false, error: "Server not configured" }
+	if (!supabase)
+		return { ok: false, error: "Service unavailable. Try again later." }
 
 	const {
 		data: { user: caller },
@@ -322,12 +325,12 @@ export async function createAdminAccount(formData: {
 	if (!superAdminEmail || caller.email.toLowerCase() !== superAdminEmail)
 		return {
 			ok: false,
-			error: "Only the super admin can create admin accounts",
+			error: "You don't have permission to create admin accounts.",
 		}
 
 	const admin = supabaseAdmin
 	if (!admin)
-		return { ok: false, error: "Server missing SUPABASE_SERVICE_ROLE_KEY" }
+		return { ok: false, error: "Service unavailable. Try again later." }
 
 	const { data: newUser, error: createError } =
 		await admin.auth.admin.createUser({

@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store"
 import { supabase } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
-import { ShieldAlert, User, LogIn, ShieldCheck } from "lucide-react"
+import { ShieldAlert, User, LogIn } from "lucide-react"
 
 const hasSupabase = () => {
 	const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -114,12 +114,7 @@ export default function LoginPage() {
 	return (
 		<div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans text-slate-900 selection:bg-[#00AEB3]/30">
 			<div className="sm:mx-auto sm:w-full sm:max-w-md">
-				<div className="flex justify-center mb-5">
-					<div className="w-14 h-14 bg-[#0F1C3F] rounded-lg flex items-center justify-center shadow-md">
-						<ShieldCheck className="w-8 h-8 text-white" />
-					</div>
-				</div>
-				<h2 className="mt-2 text-center text-3xl font-bold text-[#0F1C3F] tracking-tight">
+				<h2 className="text-center text-3xl font-bold text-[#0F1C3F] tracking-tight">
 					Internal Inventory
 				</h2>
 				<p className="mt-2 text-center text-sm text-slate-500 font-medium">
@@ -197,39 +192,7 @@ export default function LoginPage() {
 							</Button>
 						</div>
 					</form>
-
-					{!hasSupabase() && (
-						<div className="mt-8 pt-6 border-t border-slate-50">
-							<div className="bg-slate-50 rounded-lg p-4">
-								<p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-									<ShieldCheck className="w-3 h-3" /> Demo mode (no database)
-								</p>
-								<p className="text-xs text-slate-500 font-semibold">
-									Enter any email and password to try the app. Configure
-									Supabase for real accounts.
-								</p>
-							</div>
-						</div>
-					)}
-
-					{hasSupabase() && (
-						<div className="mt-8 pt-6 border-t border-slate-50">
-							<div className="bg-slate-50 rounded-lg p-4">
-								<p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-									<ShieldCheck className="w-3 h-3" /> Secure sign-in
-								</p>
-								<p className="text-xs text-slate-500 font-semibold">
-									Loggers take inventory; admins manage assets and create logger
-									accounts. Only the super admin can create admin accounts.
-								</p>
-							</div>
-						</div>
-					)}
 				</div>
-
-				<p className="mt-8 text-center text-xs text-slate-400 font-bold uppercase tracking-[0.2em]">
-					Classified Information • Authorized Use Only
-				</p>
 			</div>
 		</div>
 	)
