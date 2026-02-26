@@ -1,5 +1,6 @@
 "use server"
 
+import { isSuperAdminEmail } from "@/app/actions/auth"
 import { createServerSupabase } from "@/lib/supabase-server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 
@@ -8,10 +9,7 @@ function isAdminOrSuperAdmin(
 	userEmail: string | undefined,
 ): boolean {
 	if (profileRole === "admin") return true
-	const superEmail =
-		process.env.SUPABASE_SUPER_ADMIN_EMAIL?.trim().toLowerCase()
-	const email = userEmail?.trim().toLowerCase()
-	return Boolean(superEmail && email && email === superEmail)
+	return isSuperAdminEmail(userEmail)
 }
 
 /** Create a new facility. Admin or super admin. Site-wide: all admins and loggers see it. */

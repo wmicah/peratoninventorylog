@@ -4,6 +4,24 @@ import { createClient } from "@supabase/supabase-js"
 import { createServerSupabase } from "@/lib/supabase-server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 
+/** Super admin emails from env (comma- or newline-separated). Lowercase, trimmed, quotes stripped. */
+function getSuperAdminEmails(): Set<string> {
+	const raw = process.env.SUPABASE_SUPER_ADMIN_EMAIL?.trim().toLowerCase() ?? ""
+	if (!raw) return new Set()
+	return new Set(
+		raw
+			.replace(/\s+/g, ",")
+			.split(",")
+			.map((e) => e.replace(/^["']|["']$/g, "").trim())
+			.filter(Boolean),
+	)
+}
+
+export function isSuperAdminEmail(email: string | undefined): boolean {
+	if (!email) return false
+	return getSuperAdminEmails().has(email.trim().toLowerCase())
+}
+
 export type Profile = {
 	id: string
 	email: string
@@ -56,11 +74,9 @@ export async function getProfile(): Promise<Profile | null> {
 		}
 	}
 
-	// First-time: if this user is the super admin, create their admin profile
-	const superAdminEmail =
-		process.env.SUPABASE_SUPER_ADMIN_EMAIL?.trim().toLowerCase()
+	// First-time: if this user is a super admin, create their admin profile
 	const userEmail = user.email?.trim().toLowerCase()
-	if (superAdminEmail && userEmail === superAdminEmail) {
+	if (userEmail && isSuperAdminEmail(userEmail)) {
 		const admin = supabaseAdmin
 		if (admin) {
 			await admin.from("profiles").insert({
@@ -174,11 +190,9 @@ export async function getOrCreateProfile(sessionFromClient?: {
 		}
 	}
 
-	// Create super admin profile if email matches
-	const superAdminEmail =
-		process.env.SUPABASE_SUPER_ADMIN_EMAIL?.trim().toLowerCase()
+	// Create admin profile only if email is in super admin list
 	const userEmail = user.email?.trim().toLowerCase()
-	if (!superAdminEmail || userEmail !== superAdminEmail)
+	if (!userEmail || !isSuperAdminEmail(userEmail))
 		return {
 			ok: false,
 			error: "No account found. Contact your administrator.",
@@ -268,10 +282,7 @@ export async function createLoggerAccount(formData: {
 		.select("role")
 		.eq("id", caller.id)
 		.single()
-	const superAdminEmail =
-		process.env.SUPABASE_SUPER_ADMIN_EMAIL?.trim().toLowerCase()
-	const isSuperAdmin =
-		!!superAdminEmail && caller.email?.toLowerCase() === superAdminEmail
+	const isSuperAdmin = isSuperAdminEmail(caller.email)
 	const isAdmin = callerProfile?.role === "admin" || isSuperAdmin
 	if (!isAdmin)
 		return { ok: false, error: "You don't have permission to do that." }
@@ -320,9 +331,7 @@ export async function createAdminAccount(formData: {
 	} = await supabase.auth.getUser()
 	if (!caller?.email) return { ok: false, error: "Not signed in" }
 
-	const superAdminEmail =
-		process.env.SUPABASE_SUPER_ADMIN_EMAIL?.trim().toLowerCase()
-	if (!superAdminEmail || caller.email.toLowerCase() !== superAdminEmail)
+	if (!isSuperAdminEmail(caller.email))
 		return {
 			ok: false,
 			error: "You don't have permission to create admin accounts.",
@@ -357,17 +366,14 @@ export async function createAdminAccount(formData: {
 	return { ok: true }
 }
 
-/** True if the current user is the super admin (only one who can create admin accounts). */
+/** True if the current user is a super admin (can create admin accounts). */
 export async function getIsSuperAdmin(): Promise<boolean> {
 	const supabase = await createServerSupabase()
 	if (!supabase) return false
 	const {
 		data: { user },
 	} = await supabase.auth.getUser()
-	const email = user?.email?.trim().toLowerCase()
-	const superAdmin =
-		process.env.SUPABASE_SUPER_ADMIN_EMAIL?.trim().toLowerCase()
-	return Boolean(superAdmin && email && email === superAdmin)
+	return isSuperAdminEmail(user?.email)
 }
 
 /** List all logger profiles. Admins only. */
@@ -385,10 +391,7 @@ export async function listLoggers(): Promise<Profile[] | null> {
 		.select("role")
 		.eq("id", user.id)
 		.single()
-	const superAdminEmail =
-		process.env.SUPABASE_SUPER_ADMIN_EMAIL?.trim().toLowerCase()
-	const isSuperAdmin =
-		!!superAdminEmail && user.email?.toLowerCase() === superAdminEmail
+	const isSuperAdmin = isSuperAdminEmail(user.email)
 	if (myProfile?.role !== "admin" && !isSuperAdmin) return null
 
 	const { data } = await supabase
