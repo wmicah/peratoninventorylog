@@ -1,6 +1,6 @@
 "use server"
 
-import { isSuperAdminEmail } from "@/app/actions/auth"
+import { isSuperAdminEmail } from "@/lib/super-admin"
 import { createServerSupabase } from "@/lib/supabase-server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 

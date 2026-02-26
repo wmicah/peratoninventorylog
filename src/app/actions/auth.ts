@@ -1,26 +1,9 @@
 "use server"
 
 import { createClient } from "@supabase/supabase-js"
+import { isSuperAdminEmail } from "@/lib/super-admin"
 import { createServerSupabase } from "@/lib/supabase-server"
 import { supabaseAdmin } from "@/lib/supabase-admin"
-
-/** Super admin emails from env (comma- or newline-separated). Lowercase, trimmed, quotes stripped. */
-function getSuperAdminEmails(): Set<string> {
-	const raw = process.env.SUPABASE_SUPER_ADMIN_EMAIL?.trim().toLowerCase() ?? ""
-	if (!raw) return new Set()
-	return new Set(
-		raw
-			.replace(/\s+/g, ",")
-			.split(",")
-			.map((e) => e.replace(/^["']|["']$/g, "").trim())
-			.filter(Boolean),
-	)
-}
-
-export function isSuperAdminEmail(email: string | undefined): boolean {
-	if (!email) return false
-	return getSuperAdminEmails().has(email.trim().toLowerCase())
-}
 
 export type Profile = {
 	id: string
