@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
+import { Analytics } from "@vercel/analytics/next"
 import { AuthHydrate } from "@/components/AuthHydrate"
 import { DbHydrate } from "@/components/DbHydrate"
 import "./globals.css"
@@ -32,6 +33,7 @@ export default function RootLayout({
 				<DbHydrate />
 				<AuthHydrate />
 				{children}
+				<Analytics />
 			</body>
 		</html>
 	)
