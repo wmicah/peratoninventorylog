@@ -20,6 +20,8 @@ export interface Badge {
 	displayNumber?: number | null
 	/** When the badge was created (for "recently imported" sort). */
 	createdAt?: string
+	/** Admin-only: reason/notes for why badge is turned off (e.g. "Physical badge disabled in other system"). */
+	deactivatedReason?: string | null
 }
 
 /** Officer-facing label: "CODE [N]" when displayNumber set, else "CODE". */
@@ -65,6 +67,8 @@ export interface AppState {
 		address?: string | null
 		/** IANA timezone for 8am–8am inventory day (e.g. America/Los_Angeles). */
 		timeZone?: string | null
+		/** State code for filtering (e.g. VA, CA). Defaults to VA when null. */
+		state?: string | null
 	}[]
 	categories: Category[]
 	badges: Badge[]
@@ -80,6 +84,7 @@ export interface AppState {
 			name: string
 			address?: string | null
 			timeZone?: string | null
+			state?: string | null
 		}[],
 	) => void
 	setCategories: (categories: Category[]) => void

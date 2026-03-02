@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/Button"
 import { Select } from "@/components/ui/Select"
 import { useStore } from "@/lib/store"
 import { formatLocalTime } from "@/lib/time"
+import { purgeSessionsOlderThan5Years } from "@/app/actions/sessions"
+import { fetchSessions, sessionRowToSession } from "@/lib/db"
 import Link from "next/link"
 import {
 	DownloadCloud,
@@ -14,15 +16,21 @@ import {
 	Search,
 	ArrowRight,
 	ExternalLink,
+	Trash2,
+	Loader2,
 } from "lucide-react"
 import { useState, useMemo } from "react"
 
 export default function AdminSessionsPage() {
-	const { sessions, sites, currentUser } = useStore()
+	const { sessions, sites, currentUser, setSessions } = useStore()
 	const [filterSite, setFilterSite] = useState<string>("ALL")
 	const [search, setSearch] = useState("")
 	const [startDate, setStartDate] = useState<string>("")
 	const [endDate, setEndDate] = useState<string>("")
+	const [purging, setPurging] = useState(false)
+	const [purgeResult, setPurgeResult] = useState<{
+		deleted: number
+	} | null>(null)
 
 	const filteredSessions = useMemo(() => {
 		return Object.values(sessions)
@@ -140,6 +148,58 @@ export default function AdminSessionsPage() {
 					>
 						<DownloadCloud className="w-4 h-4 shrink-0" />
 						Export CSV
+					</Button>
+				</div>
+
+				{/* Data retention: 5-year policy + optional manual purge */}
+				<div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 flex flex-wrap items-center justify-between gap-4">
+					<div>
+						<p className="text-sm font-semibold text-slate-900">
+							Data retention
+						</p>
+						<p className="text-xs text-slate-500 mt-0.5">
+							Logs are kept for up to 5 years. Sessions older than 5 years are
+							purged automatically when you open the dashboard. You can run a
+							purge here anytime.
+						</p>
+						{purgeResult !== null && (
+							<p className="text-xs font-medium text-emerald-700 mt-2">
+								Last purge: {purgeResult.deleted} session
+								{purgeResult.deleted === 1 ? "" : "s"} deleted.
+							</p>
+						)}
+					</div>
+					<Button
+						variant="secondary"
+						size="sm"
+						onClick={async () => {
+							if (purging) return
+							setPurgeResult(null)
+							setPurging(true)
+							const res = await purgeSessionsOlderThan5Years()
+							setPurging(false)
+							if (res.ok) {
+								setPurgeResult({ deleted: res.deleted })
+								const rows = await fetchSessions()
+								const next: Record<
+									string,
+									ReturnType<typeof sessionRowToSession>
+								> = {}
+								rows.forEach((r) => {
+									next[r.id] = sessionRowToSession(r)
+								})
+								setSessions(next)
+							}
+						}}
+						disabled={purging}
+						className="inline-flex items-center gap-2 border-amber-200 text-amber-800 hover:bg-amber-50"
+					>
+						{purging ? (
+							<Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+						) : (
+							<Trash2 className="w-4 h-4 shrink-0" />
+						)}
+						{purging ? "Purging…" : "Purge data older than 5 years"}
 					</Button>
 				</div>
 

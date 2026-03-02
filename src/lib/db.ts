@@ -19,6 +19,7 @@ export type SiteRow = {
 	name: string
 	address?: string | null
 	time_zone?: string | null
+	state?: string | null
 }
 export type CategoryRow = { id: string; name: string }
 export type BadgeRow = {
@@ -29,6 +30,7 @@ export type BadgeRow = {
 	active: boolean
 	display_number: number | null
 	created_at: string
+	deactivated_reason?: string | null
 }
 export type SessionRow = {
 	id: string
@@ -47,6 +49,21 @@ export type SessionRow = {
 
 export async function fetchSites(): Promise<SiteRow[]> {
 	if (!hasSupabase()) return []
+	// Prefer select including state (run: ALTER TABLE sites ADD COLUMN IF NOT EXISTS state TEXT;)
+	const withState = await supabase
+		.from("sites")
+		.select("id, name, address, time_zone, state")
+		.order("id")
+	if (!withState.error) {
+		return (withState.data ?? []).map((r) => ({
+			id: r.id,
+			name: r.name,
+			address: r.address ?? null,
+			timeZone: r.time_zone ?? null,
+			state: r.state ?? null,
+		}))
+	}
+	// Fallback when state column doesn't exist yet
 	const { data, error } = await supabase
 		.from("sites")
 		.select("id, name, address, time_zone")
@@ -60,6 +77,7 @@ export async function fetchSites(): Promise<SiteRow[]> {
 		name: r.name,
 		address: r.address ?? null,
 		timeZone: r.time_zone ?? null,
+		state: null,
 	}))
 }
 
@@ -78,6 +96,26 @@ export async function fetchCategories(): Promise<CategoryRow[]> {
 
 export async function fetchBadges(): Promise<BadgeRow[]> {
 	if (!hasSupabase()) return []
+	// Prefer select including deactivated_reason (run: ALTER TABLE badges ADD COLUMN IF NOT EXISTS deactivated_reason TEXT;)
+	const withReason = await supabase
+		.from("badges")
+		.select(
+			"id, code, site_id, category_id, active, display_number, created_at, deactivated_reason",
+		)
+		.order("code")
+	if (!withReason.error) {
+		return (withReason.data ?? []).map((r) => ({
+			id: r.id,
+			code: r.code,
+			site_id: r.site_id,
+			category_id: r.category_id,
+			active: r.active ?? true,
+			display_number: r.display_number ?? null,
+			created_at: r.created_at ?? new Date().toISOString(),
+			deactivated_reason: r.deactivated_reason ?? null,
+		}))
+	}
+	// Fallback when deactivated_reason column doesn't exist yet
 	const { data, error } = await supabase
 		.from("badges")
 		.select(
@@ -96,6 +134,7 @@ export async function fetchBadges(): Promise<BadgeRow[]> {
 		active: r.active ?? true,
 		display_number: r.display_number ?? null,
 		created_at: r.created_at ?? new Date().toISOString(),
+		deactivated_reason: null,
 	}))
 }
 
@@ -109,6 +148,7 @@ export function badgeRowsToBadges(rows: BadgeRow[]): Badge[] {
 		active: b.active,
 		displayNumber: b.display_number ?? undefined,
 		createdAt: b.created_at,
+		deactivatedReason: b.deactivated_reason ?? null,
 	}))
 }
 
@@ -161,6 +201,8 @@ export async function hydrateFromSupabase(store: {
 			id: string
 			name: string
 			address?: string | null
+			timeZone?: string | null
+			state?: string | null
 		}[],
 	) => void
 	setCategories: (categories: Category[]) => void
@@ -229,6 +271,9 @@ export async function persistBadge(badge: Badge): Promise<boolean> {
 			category_id: badge.categoryId,
 			active: badge.active ?? true,
 			display_number: badge.displayNumber ?? null,
+			...(badge.deactivatedReason !== undefined && {
+				deactivated_reason: badge.deactivatedReason ?? null,
+			}),
 		},
 		{ onConflict: "id" },
 	)

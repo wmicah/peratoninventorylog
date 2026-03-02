@@ -23,6 +23,7 @@ import {
 	PaginationBar,
 	BADGE_LIST_PAGE_SIZE,
 } from "@/components/ui/PaginationBar"
+import { DEACTIVATED_REASON_PRESETS } from "@/lib/badgeReasons"
 
 type StatusFilter = "all" | "active" | "inactive"
 type SortBy = "recent" | "type"
@@ -58,6 +59,11 @@ export default function AdminSiteDetailsPage() {
 	const [bulkDefaultCategoryId, setBulkDefaultCategoryId] = useState("")
 	const [bulkFile, setBulkFile] = useState<File | null>(null)
 	const [bulkSubmitting, setBulkSubmitting] = useState(false)
+	const [editingReasonBadgeId, setEditingReasonBadgeId] = useState<
+		string | null
+	>(null)
+	const [editingReasonValue, setEditingReasonValue] = useState("")
+	const [savingReasonId, setSavingReasonId] = useState<string | null>(null)
 
 	const site = useMemo(
 		() => sites.find((s) => s.id === siteId),
@@ -122,12 +128,37 @@ export default function AdminSiteDetailsPage() {
 				badge.id === b.id ? { ...badge, active: nextActive } : badge,
 			),
 		)
-		const res = await updateBadge(b.id, { active: nextActive })
+		const res = await updateBadge(b.id, {
+			active: nextActive,
+			...(nextActive && { deactivatedReason: null }),
+		})
 		if (!res.ok) {
 			setMessage({ type: "err", text: res.error })
 			// Revert on failure
 			const rows = await fetchBadges()
 			setBadges(badgeRowsToBadges(rows))
+		}
+	}
+
+	const handleSaveReason = async (badgeId: string) => {
+		setSavingReasonId(badgeId)
+		const res = await updateBadge(badgeId, {
+			deactivatedReason: editingReasonValue.trim() || null,
+		})
+		setSavingReasonId(null)
+		setEditingReasonBadgeId(null)
+		if (res.ok) {
+			setBadges(
+				badges.map((b) =>
+					b.id === badgeId
+						? { ...b, deactivatedReason: editingReasonValue.trim() || null }
+						: b,
+				),
+			)
+			const rows = await fetchBadges()
+			setBadges(badgeRowsToBadges(rows))
+		} else {
+			setMessage({ type: "err", text: res.error })
 		}
 	}
 
@@ -481,6 +512,9 @@ export default function AdminSiteDetailsPage() {
 									<th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
 										On for inventory
 									</th>
+									<th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+										Reason (why off)
+									</th>
 									<th className="w-10 px-6 py-3" />
 								</tr>
 							</thead>
@@ -488,7 +522,7 @@ export default function AdminSiteDetailsPage() {
 								{filteredAndSortedBadges.length === 0 ? (
 									<tr>
 										<td
-											colSpan={5}
+											colSpan={6}
 											className="px-6 py-8 text-center text-slate-400 italic"
 										>
 											{siteBadgesAll.length === 0
@@ -522,6 +556,85 @@ export default function AdminSiteDetailsPage() {
 													/>
 													{b.active ? "On" : "Off"}
 												</label>
+											</td>
+											<td className="px-6 py-3 text-slate-600 max-w-[220px]">
+												{editingReasonBadgeId === b.id ? (
+													<div className="flex flex-col gap-1.5">
+														<select
+															value={
+																DEACTIVATED_REASON_PRESETS.includes(
+																	editingReasonValue as (typeof DEACTIVATED_REASON_PRESETS)[number],
+																)
+																	? editingReasonValue
+																	: "Other"
+															}
+															onChange={(e) => {
+																const v = e.target.value
+																setEditingReasonValue(v === "Other" ? "" : v)
+															}}
+															className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded bg-white"
+														>
+															{DEACTIVATED_REASON_PRESETS.map((r) => (
+																<option key={r} value={r}>
+																	{r}
+																</option>
+															))}
+														</select>
+														{!DEACTIVATED_REASON_PRESETS.includes(
+															editingReasonValue as (typeof DEACTIVATED_REASON_PRESETS)[number],
+														) && (
+															<input
+																type="text"
+																value={editingReasonValue}
+																onChange={(e) =>
+																	setEditingReasonValue(e.target.value)
+																}
+																placeholder="Custom reason (or leave blank)"
+																className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded bg-white"
+															/>
+														)}
+														<div className="flex gap-2">
+															<button
+																type="button"
+																onClick={() => handleSaveReason(b.id)}
+																disabled={savingReasonId === b.id}
+																className="text-[10px] font-bold text-emerald-600 hover:underline"
+															>
+																{savingReasonId === b.id ? "Saving…" : "Save"}
+															</button>
+															<button
+																type="button"
+																onClick={() => {
+																	setEditingReasonBadgeId(null)
+																	setEditingReasonValue("")
+																}}
+																className="text-[10px] font-bold text-slate-500 hover:underline"
+															>
+																Cancel
+															</button>
+														</div>
+													</div>
+												) : (
+													<>
+														<span className="text-xs">
+															{b.deactivatedReason ?? "—"}
+														</span>
+														{!b.active && (
+															<button
+																type="button"
+																onClick={() => {
+																	setEditingReasonBadgeId(b.id)
+																	setEditingReasonValue(
+																		b.deactivatedReason ?? "",
+																	)
+																}}
+																className="ml-2 text-[10px] font-bold text-slate-500 hover:underline"
+															>
+																Edit
+															</button>
+														)}
+													</>
+												)}
 											</td>
 											<td className="px-6 py-3">
 												<button

@@ -22,23 +22,25 @@ import {
 	UserCheck,
 } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 export default function AdminLoggersPage() {
 	const { currentUser, sites } = useStore()
 	const [loggers, setLoggers] = useState<Profile[]>([])
 	const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 	const [loading, setLoading] = useState(true)
-	const [loggerForm, setLoggerForm] = useState({
+	const [createForm, setCreateForm] = useState<{
+		accountType: "logger" | "admin" | null
+		email: string
+		full_name: string
+		password: string
+		assigned_site_ids: string[]
+	}>({
+		accountType: null,
 		email: "",
 		full_name: "",
 		password: "",
-		assigned_site_ids: [] as string[],
-	})
-	const [adminForm, setAdminForm] = useState({
-		email: "",
-		full_name: "",
-		password: "",
+		assigned_site_ids: [],
 	})
 	const [message, setMessage] = useState<{
 		type: "ok" | "err"
@@ -52,6 +54,23 @@ export default function AdminLoggersPage() {
 	})
 	const [actionLoading, setActionLoading] = useState(false)
 	const [togglingId, setTogglingId] = useState<string | null>(null)
+	const [siteStateFilter, setSiteStateFilter] = useState<string>("VA")
+
+	const availableStates = useMemo(() => {
+		const states = [
+			...new Set(sites.map((s) => (s.state ?? "VA").trim() || "VA")),
+		]
+		return states.length ? states.sort() : ["VA"]
+	}, [sites])
+
+	const sitesByState = useMemo(
+		() =>
+			sites.filter((s) => {
+				const effective = (s.state ?? "VA").trim() || "VA"
+				return effective === siteStateFilter
+			}),
+		[sites, siteStateFilter],
+	)
 
 	useEffect(() => {
 		if (!currentUser) {
@@ -70,46 +89,58 @@ export default function AdminLoggersPage() {
 		})
 	}, [currentUser])
 
-	const handleCreateLogger = async (e: React.FormEvent) => {
+	const handleCreateAccount = async (e: React.FormEvent) => {
 		e.preventDefault()
+		if (!createForm.accountType) return
 		setMessage(null)
 		setSubmitting(true)
-		const res = await createLoggerAccount({
-			...loggerForm,
-			assigned_site_ids: loggerForm.assigned_site_ids.length
-				? loggerForm.assigned_site_ids
-				: sites.map((s) => s.id),
-		})
-		setSubmitting(false)
-		if (res.ok) {
-			setMessage({
-				type: "ok",
-				text: "Account created. They can sign in with the password you set.",
+		if (createForm.accountType === "logger") {
+			const res = await createLoggerAccount({
+				email: createForm.email,
+				full_name: createForm.full_name,
+				password: createForm.password,
+				assigned_site_ids:
+					createForm.assigned_site_ids.length > 0
+						? createForm.assigned_site_ids
+						: sites.map((s) => s.id),
 			})
-			setLoggerForm({
-				email: "",
-				full_name: "",
-				password: "",
-				assigned_site_ids: [],
+			setSubmitting(false)
+			if (res.ok) {
+				setMessage({
+					type: "ok",
+					text: "Account created. They can sign in with the password you set.",
+				})
+				setCreateForm({
+					accountType: null,
+					email: "",
+					full_name: "",
+					password: "",
+					assigned_site_ids: [],
+				})
+				const list = await listLoggers()
+				setLoggers(list ?? [])
+			} else {
+				setMessage({ type: "err", text: res.error })
+			}
+		} else {
+			const res = await createAdminAccount({
+				email: createForm.email,
+				full_name: createForm.full_name,
+				password: createForm.password,
 			})
-			const list = await listLoggers()
-			setLoggers(list ?? [])
-		} else {
-			setMessage({ type: "err", text: res.error })
-		}
-	}
-
-	const handleCreateAdmin = async (e: React.FormEvent) => {
-		e.preventDefault()
-		setMessage(null)
-		setSubmitting(true)
-		const res = await createAdminAccount(adminForm)
-		setSubmitting(false)
-		if (res.ok) {
-			setMessage({ type: "ok", text: "Admin account created." })
-			setAdminForm({ email: "", full_name: "", password: "" })
-		} else {
-			setMessage({ type: "err", text: res.error })
+			setSubmitting(false)
+			if (res.ok) {
+				setMessage({ type: "ok", text: "Admin account created." })
+				setCreateForm({
+					accountType: null,
+					email: "",
+					full_name: "",
+					password: "",
+					assigned_site_ids: [],
+				})
+			} else {
+				setMessage({ type: "err", text: res.error })
+			}
 		}
 	}
 
@@ -194,8 +225,8 @@ export default function AdminLoggersPage() {
 						Account Management
 					</h1>
 					<p className="text-slate-500 font-semibold text-sm mt-1">
-						Create inventory accounts for takers. Only the super admin can
-						create admin accounts.
+						Create accounts. Choose inventory account or admin (super admin
+						only). Account type is required.
 					</p>
 				</div>
 
@@ -211,7 +242,7 @@ export default function AdminLoggersPage() {
 					</div>
 				)}
 
-				{/* Create Account */}
+				{/* Create Account — single form with account type choice */}
 				<div
 					id="create-account"
 					className="bg-white rounded-xl border border-slate-200 shadow-sm p-6"
@@ -220,10 +251,62 @@ export default function AdminLoggersPage() {
 						<UserPlus className="w-5 h-5" /> Create Account
 					</h2>
 					<form
-						onSubmit={handleCreateLogger}
-						className="space-y-4"
+						onSubmit={handleCreateAccount}
+						className="space-y-6"
 						autoComplete="off"
 					>
+						<div>
+							<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2 block">
+								Account type <span className="text-red-500">*</span>
+							</label>
+							<div className="flex flex-wrap gap-4">
+								<button
+									type="button"
+									onClick={() =>
+										setCreateForm((p) => ({ ...p, accountType: "logger" }))
+									}
+									className={`flex items-center gap-3 px-5 py-4 rounded-xl border-2 text-left transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-primary-900)] ${
+										createForm.accountType === "logger"
+											? "border-[var(--color-primary-900)] bg-primary-50"
+											: "border-slate-200 bg-slate-50 hover:border-slate-300"
+									}`}
+								>
+									<Users className="w-6 h-6 text-slate-600 shrink-0" />
+									<div>
+										<span className="font-bold text-slate-900 block">
+											Inventory account
+										</span>
+										<span className="text-xs text-slate-500">
+											Takes inventory at assigned facilities
+										</span>
+									</div>
+								</button>
+								{isSuperAdmin && (
+									<button
+										type="button"
+										onClick={() =>
+											setCreateForm((p) => ({ ...p, accountType: "admin" }))
+										}
+										className={`flex items-center gap-3 px-5 py-4 rounded-xl border-2 text-left transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 ${
+											createForm.accountType === "admin"
+												? "border-amber-500 bg-amber-50"
+												: "border-slate-200 bg-slate-50 hover:border-slate-300"
+										}`}
+									>
+										<ShieldCheck className="w-6 h-6 text-amber-600 shrink-0" />
+										<div>
+											<span className="font-bold text-slate-900 block">
+												Admin
+											</span>
+											<span className="text-xs text-slate-500">
+												Full access to facilities and accounts
+											</span>
+										</div>
+									</button>
+								)}
+							</div>
+						</div>
+
 						<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 							<div>
 								<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
@@ -233,9 +316,9 @@ export default function AdminLoggersPage() {
 									type="email"
 									required
 									autoComplete="off"
-									value={loggerForm.email}
+									value={createForm.email}
 									onChange={(e) =>
-										setLoggerForm((p) => ({ ...p, email: e.target.value }))
+										setCreateForm((p) => ({ ...p, email: e.target.value }))
 									}
 									className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
 									placeholder="name@peraton.com"
@@ -248,9 +331,9 @@ export default function AdminLoggersPage() {
 								<input
 									type="text"
 									required
-									value={loggerForm.full_name}
+									value={createForm.full_name}
 									onChange={(e) =>
-										setLoggerForm((p) => ({ ...p, full_name: e.target.value }))
+										setCreateForm((p) => ({ ...p, full_name: e.target.value }))
 									}
 									className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
 									placeholder="Full Name"
@@ -266,122 +349,71 @@ export default function AdminLoggersPage() {
 								required
 								minLength={6}
 								autoComplete="new-password"
-								value={loggerForm.password}
+								value={createForm.password}
 								onChange={(e) =>
-									setLoggerForm((p) => ({ ...p, password: e.target.value }))
+									setCreateForm((p) => ({ ...p, password: e.target.value }))
 								}
 								className="w-full max-w-xs px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
 								placeholder="Min 6 characters"
 							/>
 						</div>
-						<div>
-							<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
-								Assigned Sites (leave empty for all)
-							</label>
-							<div className="flex flex-wrap gap-2">
-								{sites.map((s) => (
-									<label
-										key={s.id}
-										className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer"
-									>
-										<input
-											type="checkbox"
-											checked={loggerForm.assigned_site_ids.includes(s.id)}
-											onChange={(e) =>
-												setLoggerForm((p) => ({
-													...p,
-													assigned_site_ids: e.target.checked
-														? [...p.assigned_site_ids, s.id]
-														: p.assigned_site_ids.filter((id) => id !== s.id),
-												}))
-											}
-											className="rounded border-slate-300"
-										/>
-										<span className="text-sm font-semibold text-slate-700">
-											{s.name}
-										</span>
+						{createForm.accountType === "logger" && (
+							<div>
+								<div className="mb-2 flex items-center gap-2">
+									<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">
+										State
 									</label>
-								))}
+									<select
+										value={siteStateFilter}
+										onChange={(e) => setSiteStateFilter(e.target.value)}
+										className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
+									>
+										{availableStates.map((st) => (
+											<option key={st} value={st}>
+												{st}
+											</option>
+										))}
+									</select>
+								</div>
+								<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
+									Assigned Sites (leave empty for all)
+								</label>
+								<div className="flex flex-wrap gap-2">
+									{sitesByState.map((s) => (
+										<label
+											key={s.id}
+											className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer"
+										>
+											<input
+												type="checkbox"
+												checked={createForm.assigned_site_ids.includes(s.id)}
+												onChange={(e) =>
+													setCreateForm((p) => ({
+														...p,
+														assigned_site_ids: e.target.checked
+															? [...p.assigned_site_ids, s.id]
+															: p.assigned_site_ids.filter((id) => id !== s.id),
+													}))
+												}
+												className="rounded border-slate-300"
+											/>
+											<span className="text-sm font-semibold text-slate-700">
+												{s.name}
+											</span>
+										</label>
+									))}
+								</div>
 							</div>
-						</div>
-						<Button type="submit" disabled={submitting}>
+						)}
+						<Button
+							type="submit"
+							disabled={submitting || !createForm.accountType}
+						>
 							{submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-							Create Account
+							Create account
 						</Button>
 					</form>
 				</div>
-
-				{/* Create Admin (super admin only) */}
-				{isSuperAdmin && (
-					<div className="bg-white rounded-xl border border-amber-200 shadow-sm p-6">
-						<h2 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-4">
-							<Shield className="w-5 h-5 text-amber-600" /> Create Admin Account
-						</h2>
-						<p className="text-sm text-slate-500 mb-4">
-							Only you (super admin) can create other admin accounts.
-						</p>
-						<form
-							onSubmit={handleCreateAdmin}
-							className="space-y-4 max-w-md"
-							autoComplete="off"
-						>
-							<div>
-								<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
-									Email
-								</label>
-								<input
-									type="email"
-									required
-									autoComplete="off"
-									value={adminForm.email}
-									onChange={(e) =>
-										setAdminForm((p) => ({ ...p, email: e.target.value }))
-									}
-									className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
-									placeholder="name@peraton.com"
-								/>
-							</div>
-							<div>
-								<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
-									Full Name
-								</label>
-								<input
-									type="text"
-									required
-									value={adminForm.full_name}
-									onChange={(e) =>
-										setAdminForm((p) => ({ ...p, full_name: e.target.value }))
-									}
-									className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
-									placeholder="Full Name"
-								/>
-							</div>
-							<div>
-								<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
-									Password
-								</label>
-								<input
-									type="password"
-									required
-									minLength={6}
-									autoComplete="new-password"
-									value={adminForm.password}
-									onChange={(e) =>
-										setAdminForm((p) => ({ ...p, password: e.target.value }))
-									}
-									className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
-									placeholder="Min 6 characters"
-								/>
-							</div>
-							<Button type="submit" disabled={submitting}>
-								{submitting ? (
-									<Loader2 className="w-4 h-4 animate-spin" />
-								) : null}
-								Create Admin
-							</Button>
-						</form>
-					</div>
-				)}
 
 				{/* List Accounts */}
 				<div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -524,11 +556,27 @@ export default function AdminLoggersPage() {
 									/>
 								</div>
 								<div>
+									<div className="mb-2 flex items-center gap-2">
+										<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+											State
+										</label>
+										<select
+											value={siteStateFilter}
+											onChange={(e) => setSiteStateFilter(e.target.value)}
+											className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
+										>
+											{availableStates.map((st) => (
+												<option key={st} value={st}>
+													{st}
+												</option>
+											))}
+										</select>
+									</div>
 									<label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
 										Assigned facilities (leave empty for all)
 									</label>
 									<div className="flex flex-wrap gap-2">
-										{sites.map((s) => (
+										{sitesByState.map((s) => (
 											<label
 												key={s.id}
 												className="flex items-center gap-1.5 cursor-pointer"

@@ -29,6 +29,60 @@ const TIMEZONE_OPTIONS = [
 	{ value: "America/Phoenix", label: "Arizona (no DST)" },
 ]
 
+/** All 50 US states (code, label) for facility create/edit and filtering. */
+const US_STATES: { value: string; label: string }[] = [
+	{ value: "AL", label: "Alabama" },
+	{ value: "AK", label: "Alaska" },
+	{ value: "AZ", label: "Arizona" },
+	{ value: "AR", label: "Arkansas" },
+	{ value: "CA", label: "California" },
+	{ value: "CO", label: "Colorado" },
+	{ value: "CT", label: "Connecticut" },
+	{ value: "DE", label: "Delaware" },
+	{ value: "FL", label: "Florida" },
+	{ value: "GA", label: "Georgia" },
+	{ value: "HI", label: "Hawaii" },
+	{ value: "ID", label: "Idaho" },
+	{ value: "IL", label: "Illinois" },
+	{ value: "IN", label: "Indiana" },
+	{ value: "IA", label: "Iowa" },
+	{ value: "KS", label: "Kansas" },
+	{ value: "KY", label: "Kentucky" },
+	{ value: "LA", label: "Louisiana" },
+	{ value: "ME", label: "Maine" },
+	{ value: "MD", label: "Maryland" },
+	{ value: "MA", label: "Massachusetts" },
+	{ value: "MI", label: "Michigan" },
+	{ value: "MN", label: "Minnesota" },
+	{ value: "MS", label: "Mississippi" },
+	{ value: "MO", label: "Missouri" },
+	{ value: "MT", label: "Montana" },
+	{ value: "NE", label: "Nebraska" },
+	{ value: "NV", label: "Nevada" },
+	{ value: "NH", label: "New Hampshire" },
+	{ value: "NJ", label: "New Jersey" },
+	{ value: "NM", label: "New Mexico" },
+	{ value: "NY", label: "New York" },
+	{ value: "NC", label: "North Carolina" },
+	{ value: "ND", label: "North Dakota" },
+	{ value: "OH", label: "Ohio" },
+	{ value: "OK", label: "Oklahoma" },
+	{ value: "OR", label: "Oregon" },
+	{ value: "PA", label: "Pennsylvania" },
+	{ value: "RI", label: "Rhode Island" },
+	{ value: "SC", label: "South Carolina" },
+	{ value: "SD", label: "South Dakota" },
+	{ value: "TN", label: "Tennessee" },
+	{ value: "TX", label: "Texas" },
+	{ value: "UT", label: "Utah" },
+	{ value: "VT", label: "Vermont" },
+	{ value: "VA", label: "Virginia" },
+	{ value: "WA", label: "Washington" },
+	{ value: "WV", label: "West Virginia" },
+	{ value: "WI", label: "Wisconsin" },
+	{ value: "WY", label: "Wyoming" },
+]
+
 export default function AdminSitesPage() {
 	const {
 		currentUser,
@@ -44,6 +98,7 @@ export default function AdminSitesPage() {
 	const [editName, setEditName] = useState("")
 	const [editAddress, setEditAddress] = useState("")
 	const [editTimeZone, setEditTimeZone] = useState("America/New_York")
+	const [editState, setEditState] = useState("VA")
 	const [saving, setSaving] = useState(false)
 	const [addingBadgeSiteId, setAddingBadgeSiteId] = useState<string | null>(
 		null,
@@ -64,19 +119,36 @@ export default function AdminSitesPage() {
 	const [newName, setNewName] = useState("")
 	const [newAddress, setNewAddress] = useState("")
 	const [newTimeZone, setNewTimeZone] = useState("America/New_York")
+	const [newState, setNewState] = useState("VA")
 	const [creating, setCreating] = useState(false)
+	const [stateFilter, setStateFilter] = useState<string>("")
 
-	// Filter sites by search (name, id, or address)
+	// States that appear in the filter dropdown (from current data)
+	const filterStateOptions = useMemo(() => {
+		const fromSites = new Set(
+			sites.map((s) => (s.state ?? "VA").trim() || "VA"),
+		)
+		return ["", ...[...fromSites].sort()]
+	}, [sites])
+
+	// Filter sites by state then by search (name, id, or address)
 	const filteredSites = useMemo(() => {
+		let list = sites
+		if (stateFilter) {
+			list = list.filter((s) => {
+				const effective = (s.state ?? "VA").trim() || "VA"
+				return effective === stateFilter
+			})
+		}
 		const q = search.trim().toLowerCase()
-		if (!q) return sites
-		return sites.filter(
+		if (!q) return list
+		return list.filter(
 			(s) =>
 				s.name.toLowerCase().includes(q) ||
 				s.id.toLowerCase().includes(q) ||
 				(s.address && s.address.toLowerCase().includes(q)),
 		)
-	}, [sites, search])
+	}, [sites, stateFilter, search])
 
 	const startEdit = (id: string) => {
 		const site = sites.find((s) => s.id === id)
@@ -85,6 +157,7 @@ export default function AdminSitesPage() {
 			setEditName(site.name)
 			setEditAddress(site.address ?? "")
 			setEditTimeZone(site.timeZone ?? "America/New_York")
+			setEditState((site.state ?? "VA").trim() || "VA")
 			setMessage(null)
 		}
 	}
@@ -94,6 +167,7 @@ export default function AdminSitesPage() {
 		setEditName("")
 		setEditAddress("")
 		setEditTimeZone("America/New_York")
+		setEditState("VA")
 	}
 
 	const saveEdit = async () => {
@@ -104,6 +178,7 @@ export default function AdminSitesPage() {
 			name: editName,
 			address: editAddress || null,
 			timeZone: editTimeZone || null,
+			state: editState?.trim() || null,
 		})
 		setSaving(false)
 		if (res.ok) {
@@ -226,6 +301,7 @@ export default function AdminSitesPage() {
 			name,
 			address: newAddress.trim() || null,
 			timeZone: newTimeZone || null,
+			state: newState?.trim() || null,
 		})
 		setCreating(false)
 		if (res.ok) {
@@ -237,6 +313,7 @@ export default function AdminSitesPage() {
 			setNewName("")
 			setNewAddress("")
 			setNewTimeZone("America/New_York")
+			setNewState("VA")
 			setShowCreate(false)
 			const updated = await fetchSites()
 			setSites(updated)
@@ -355,6 +432,22 @@ export default function AdminSitesPage() {
 									))}
 								</select>
 							</div>
+							<div>
+								<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
+									State (for site filtering)
+								</label>
+								<select
+									value={newState}
+									onChange={(e) => setNewState(e.target.value)}
+									className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
+								>
+									{US_STATES.map((s) => (
+										<option key={s.value} value={s.value}>
+											{s.label}
+										</option>
+									))}
+								</select>
+							</div>
 							<div className="flex gap-2">
 								<Button type="submit" disabled={creating} variant="primary">
 									{creating ? (
@@ -372,6 +465,7 @@ export default function AdminSitesPage() {
 										setNewId("")
 										setNewName("")
 										setNewAddress("")
+										setNewState("VA")
 										setMessage(null)
 									}}
 								>
@@ -382,16 +476,41 @@ export default function AdminSitesPage() {
 					</div>
 				)}
 
-				{/* Search */}
-				<div className="relative transition-opacity duration-200">
-					<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-					<input
-						type="search"
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-						placeholder="Search by name, ID, or address..."
-						className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)] transition-shadow duration-200"
-					/>
+				{/* State filter + Search */}
+				<div className="flex flex-col sm:flex-row gap-3">
+					<div className="flex items-center gap-2 min-w-0 sm:w-auto">
+						<label
+							htmlFor="facilities-state-filter"
+							className="text-[10px] font-medium text-slate-500 uppercase tracking-wider shrink-0"
+						>
+							State
+						</label>
+						<select
+							id="facilities-state-filter"
+							value={stateFilter}
+							onChange={(e) => setStateFilter(e.target.value)}
+							className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)] min-w-[100px]"
+						>
+							<option value="">All</option>
+							{filterStateOptions
+								.filter((s) => s !== "")
+								.map((st) => (
+									<option key={st} value={st}>
+										{st}
+									</option>
+								))}
+						</select>
+					</div>
+					<div className="relative flex-1 min-w-0">
+						<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+						<input
+							type="search"
+							value={search}
+							onChange={(e) => setSearch(e.target.value)}
+							placeholder="Search by name, ID, or address..."
+							className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)] transition-shadow duration-200"
+						/>
+					</div>
 				</div>
 
 				{message && (
@@ -451,6 +570,22 @@ export default function AdminSitesPage() {
 											{TIMEZONE_OPTIONS.map((opt) => (
 												<option key={opt.value} value={opt.value}>
 													{opt.label}
+												</option>
+											))}
+										</select>
+									</div>
+									<div>
+										<label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
+											State (for site filtering)
+										</label>
+										<select
+											value={editState}
+											onChange={(e) => setEditState(e.target.value)}
+											className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-900)]"
+										>
+											{US_STATES.map((s) => (
+												<option key={s.value} value={s.value}>
+													{s.label}
 												</option>
 											))}
 										</select>

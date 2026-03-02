@@ -18,6 +18,7 @@ export async function createSite(data: {
 	name: string
 	address?: string | null
 	timeZone?: string | null
+	state?: string | null
 }): Promise<{ ok: true } | { ok: false; error: string }> {
 	const supabase = await createServerSupabase()
 	if (!supabase) return { ok: false, error: "Server not configured" }
@@ -42,6 +43,7 @@ export async function createSite(data: {
 	const name = data.name.trim()
 	const address = data.address?.trim() || null
 	const timeZone = data.timeZone?.trim() || null
+	const state = data.state?.trim().toUpperCase() || null
 	if (!id) return { ok: false, error: "Facility ID is required" }
 	if (!name) return { ok: false, error: "Facility name is required" }
 
@@ -50,6 +52,7 @@ export async function createSite(data: {
 		name,
 		address,
 		...(timeZone != null && { time_zone: timeZone }),
+		...(state != null && { state }),
 	})
 	if (error) {
 		if (error.code === "23505")
@@ -59,10 +62,15 @@ export async function createSite(data: {
 	return { ok: true }
 }
 
-/** Update a site's name, address, and/or timezone. Admin only. */
+/** Update a site's name, address, timezone, and/or state. Admin only. */
 export async function updateSite(
 	siteId: string,
-	updates: { name?: string; address?: string | null; timeZone?: string | null },
+	updates: {
+		name?: string
+		address?: string | null
+		timeZone?: string | null
+		state?: string | null
+	},
 ): Promise<{ ok: true } | { ok: false; error: string }> {
 	const supabase = await createServerSupabase()
 	if (!supabase) return { ok: false, error: "Server not configured" }
@@ -89,6 +97,8 @@ export async function updateSite(
 		payload.address = updates.address?.trim() || null
 	if (updates.timeZone !== undefined)
 		payload.time_zone = updates.timeZone?.trim() || null
+	if (updates.state !== undefined)
+		payload.state = updates.state?.trim().toUpperCase() || null
 	if (Object.keys(payload).length === 0) return { ok: true }
 
 	const { error } = await admin.from("sites").update(payload).eq("id", siteId)

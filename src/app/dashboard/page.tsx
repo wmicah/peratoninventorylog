@@ -1,7 +1,7 @@
 "use client"
 
 import { AppLayout } from "@/components/AppLayout"
-import { useStore, type AppState } from "@/lib/store"
+import { useStore, type AppState, formatBadgeLabel } from "@/lib/store"
 import { computeHealth } from "@/lib/inventoryLogic"
 import {
 	formatLocalTime,
@@ -20,15 +20,29 @@ import {
 	Globe,
 	Server,
 	ChevronRight,
+	ChevronDown,
 	ClipboardCheck,
 	Plus,
 	Check,
 	ChevronLeft,
 	Calendar,
 	Download,
+	Tag,
 } from "lucide-react"
 import Link from "next/link"
 import { useState, useMemo, useEffect } from "react"
+import {
+	fetchBadges,
+	badgeRowsToBadges,
+	fetchSessions,
+	sessionRowToSession,
+} from "@/lib/db"
+import {
+	turnOffMissingBadgesForSite,
+	runAutoOffWeekOldMissing,
+} from "@/app/actions/badges"
+import { purgeSessionsOlderThan5Years } from "@/app/actions/sessions"
+import { listLoggers, type Profile } from "@/app/actions/auth"
 
 export default function Dashboard() {
 	const [mounted, setMounted] = useState(false)
@@ -37,11 +51,42 @@ export default function Dashboard() {
 	const sites = useStore((state) => state.sites)
 	const sessions = useStore((state) => state.sessions)
 	const badges = useStore((state) => state.badges)
+	const setBadges = useStore((state) => state.setBadges)
+	const setSessions = useStore((state) => state.setSessions)
 	const setSelectedSite = useStore((state) => state.setSelectedSite)
 
 	useEffect(() => {
 		setMounted(true)
 	}, [])
+
+	// On admin load: auto-turn-off badges missing 7+ days, purge sessions older than 5 years, show one-time notification
+	useEffect(() => {
+		if (!mounted || currentUser?.role !== "admin") return
+		;(async () => {
+			let shouldRefetchBadges = false
+			let shouldRefetchSessions = false
+			const autoOffRes = await runAutoOffWeekOldMissing()
+			if (autoOffRes.ok && autoOffRes.turnedOff.length > 0) {
+				setAutoOffReport(autoOffRes.turnedOff)
+				shouldRefetchBadges = true
+			}
+			const purgeRes = await purgeSessionsOlderThan5Years()
+			if (purgeRes.ok && purgeRes.deleted > 0) {
+				setPurgeCount(purgeRes.deleted)
+				shouldRefetchSessions = true
+			}
+			if (shouldRefetchBadges)
+				fetchBadges().then((rows) => setBadges(badgeRowsToBadges(rows)))
+			if (shouldRefetchSessions) {
+				const rows = await fetchSessions()
+				const next: Record<string, ReturnType<typeof sessionRowToSession>> = {}
+				rows.forEach((r) => {
+					next[r.id] = sessionRowToSession(r)
+				})
+				setSessions(next)
+			}
+		})()
+	}, [mounted, currentUser?.role, setBadges, setSessions])
 
 	// Use local date so "today" is the user's date, not UTC (which could show tomorrow)
 	const getTodayLocal = () => {
@@ -55,6 +100,18 @@ export default function Dashboard() {
 	}
 	const [selectedDate, setSelectedDate] = useState(getTodayLocal())
 	const [exporting, setExporting] = useState(false)
+	const [turnOffMissingSiteId, setTurnOffMissingSiteId] = useState<
+		string | null
+	>(null)
+	const [officerMessage, setOfficerMessage] = useState<string | null>(null)
+	const [expandedBadgeStatusSiteId, setExpandedBadgeStatusSiteId] = useState<
+		string | null
+	>(null)
+	const [autoOffReport, setAutoOffReport] = useState<
+		{ badgeId: string; code: string; siteId: string; siteName: string }[] | null
+	>(null)
+	const [dismissedAutoOff, setDismissedAutoOff] = useState(false)
+	const [purgeCount, setPurgeCount] = useState<number | null>(null)
 
 	const changeDate = (days: number) => {
 		const [y, m, d] = selectedDate.split("-").map(Number)
@@ -414,6 +471,12 @@ export default function Dashboard() {
 						</Link>
 					</div>
 
+					{officerMessage && (
+						<div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-800">
+							{officerMessage}
+						</div>
+					)}
+
 					{/* Assigned facilities + badge status */}
 					<div>
 						<h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -432,6 +495,12 @@ export default function Dashboard() {
 									const inactiveCount = badges.filter(
 										(b) => b.siteId === site.id && b.active === false,
 									).length
+									const siteHealth = computeHealth(
+										{ sessions, badges, sites, selectedSite } as AppState,
+										site.id,
+									)
+									const missingCount = siteHealth.missingCount
+									const isTurningOff = turnOffMissingSiteId === site.id
 									return (
 										<div
 											key={site.id}
@@ -447,7 +516,7 @@ export default function Dashboard() {
 													</span>
 												</div>
 											</div>
-											<div className="flex flex-wrap gap-3 text-[11px]">
+											<div className="flex flex-wrap gap-3 text-[11px] mb-3">
 												<span className="font-semibold text-slate-600">
 													{siteBadges.length} active for inventory
 												</span>
@@ -456,7 +525,96 @@ export default function Dashboard() {
 														{inactiveCount} turned off
 													</span>
 												)}
+												{missingCount > 0 && (
+													<span className="text-red-600 font-semibold">
+														{missingCount} missing
+													</span>
+												)}
 											</div>
+											{missingCount > 0 && (
+												<button
+													type="button"
+													onClick={async () => {
+														setOfficerMessage(null)
+														setTurnOffMissingSiteId(site.id)
+														const res = await turnOffMissingBadgesForSite(
+															site.id,
+														)
+														setTurnOffMissingSiteId(null)
+														if (res.ok) {
+															if (res.count > 0) {
+																const rows = await fetchBadges()
+																setBadges(badgeRowsToBadges(rows))
+																setOfficerMessage(
+																	`Turned off ${res.count} missing badge${res.count === 1 ? "" : "s"}. Disable the physical badge(s) in your other software.`,
+																)
+																setTimeout(() => setOfficerMessage(null), 5000)
+															}
+														} else {
+															setOfficerMessage(res.error)
+															setTimeout(() => setOfficerMessage(null), 5000)
+														}
+													}}
+													disabled={isTurningOff}
+													className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border-2 border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-wider hover:bg-slate-50 hover:border-slate-300 disabled:opacity-60 transition-all"
+												>
+													{isTurningOff ? (
+														<>Turning off…</>
+													) : (
+														<>Turn off all missing badges</>
+													)}
+												</button>
+											)}
+											<button
+												type="button"
+												onClick={() =>
+													setExpandedBadgeStatusSiteId((prev) =>
+														prev === site.id ? null : site.id,
+													)
+												}
+												className="w-full mt-2 flex items-center justify-center gap-2 py-2 rounded-lg border border-slate-100 text-slate-500 text-[10px] font-bold uppercase tracking-wider hover:bg-slate-50 transition-all"
+											>
+												<Tag className="w-3.5 h-3.5" />
+												{expandedBadgeStatusSiteId === site.id
+													? "Hide badge status"
+													: "View badge status"}
+												{expandedBadgeStatusSiteId === site.id ? (
+													<ChevronDown className="w-3.5 h-3.5 rotate-180" />
+												) : (
+													<ChevronDown className="w-3.5 h-3.5" />
+												)}
+											</button>
+											{expandedBadgeStatusSiteId === site.id && (
+												<div className="mt-3 pt-3 border-t border-slate-100 max-h-48 overflow-y-auto">
+													<p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+														Badge status (read-only)
+													</p>
+													<ul className="space-y-1.5">
+														{badges
+															.filter((b) => b.siteId === site.id)
+															.sort((a, b) => a.code.localeCompare(b.code))
+															.map((b) => (
+																<li
+																	key={b.id}
+																	className="flex items-center justify-between gap-2 text-[11px]"
+																>
+																	<span className="font-mono font-semibold text-slate-800 truncate">
+																		{formatBadgeLabel(b)}
+																	</span>
+																	<span
+																		className={`shrink-0 font-bold uppercase tracking-wider ${
+																			b.active
+																				? "text-teal-600"
+																				: "text-amber-600"
+																		}`}
+																	>
+																		{b.active ? "On" : "Off"}
+																	</span>
+																</li>
+															))}
+													</ul>
+												</div>
+											)}
 										</div>
 									)
 								})
@@ -539,11 +697,60 @@ export default function Dashboard() {
 		)
 	}
 
-	// --- GLOBAL OVERVIEW ---
-	if (selectedSite === "all" && aggregateMetrics && globalStats) {
+	// --- GLOBAL OVERVIEW (admin: all facilities; use Dashboard then click a site to go to /dashboard/[siteId]) ---
+	if (currentUser?.role === "admin" && aggregateMetrics && globalStats) {
 		return (
 			<AppLayout>
 				<div className="flex flex-col gap-10 bg-dots min-h-[calc(100vh-4rem)] -m-8 md:-m-10 p-10 md:p-12">
+					{((autoOffReport && autoOffReport.length > 0) ||
+						(purgeCount != null && purgeCount > 0)) &&
+						!dismissedAutoOff && (
+							<div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-4 flex flex-wrap items-start justify-between gap-3">
+								<div>
+									{autoOffReport && autoOffReport.length > 0 && (
+										<>
+											<p className="font-bold text-amber-900 text-sm">
+												{autoOffReport.length} badge
+												{autoOffReport.length === 1 ? "" : "s"} turned off
+												automatically
+											</p>
+											<p className="text-amber-800 text-xs mt-1">
+												These had been missing for 7+ days with no new
+												inventory. They are now hidden from officers.
+											</p>
+											{autoOffReport.length <= 5 ? (
+												<ul className="mt-2 text-xs font-medium text-amber-900">
+													{autoOffReport.map((r) => (
+														<li key={r.badgeId}>
+															{r.code} ({r.siteName})
+														</li>
+													))}
+												</ul>
+											) : (
+												<p className="mt-2 text-xs font-medium text-amber-900">
+													{autoOffReport.length} badges across{" "}
+													{new Set(autoOffReport.map((r) => r.siteId)).size}{" "}
+													facilities
+												</p>
+											)}
+										</>
+									)}
+									{purgeCount != null && purgeCount > 0 && (
+										<p className="text-amber-800 text-xs font-medium mt-2">
+											{purgeCount} session{purgeCount === 1 ? "" : "s"} older
+											than 5 years were purged (retention policy).
+										</p>
+									)}
+								</div>
+								<button
+									type="button"
+									onClick={() => setDismissedAutoOff(true)}
+									className="shrink-0 px-3 py-1.5 rounded-lg border border-amber-300 text-amber-900 text-xs font-bold uppercase tracking-wider hover:bg-amber-100 transition-colors"
+								>
+									Dismiss
+								</button>
+							</div>
+						)}
 					<div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
 						<div>
 							<h1 className="text-3xl font-black text-slate-900 tracking-tighter leading-none mb-3">
@@ -557,15 +764,6 @@ export default function Dashboard() {
 									Active nodes: {sites.length} Facilities
 								</span>
 							</div>
-						</div>
-
-						<div className="bg-white p-1 rounded-lg border border-slate-200 shadow-sm flex">
-							<button className="px-4 py-1.5 text-xs font-bold uppercase tracking-widest bg-slate-900 text-white rounded shadow-sm transition-all">
-								Real-time
-							</button>
-							<button className="px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors">
-								Historical
-							</button>
 						</div>
 					</div>
 
@@ -662,13 +860,12 @@ export default function Dashboard() {
 									<ul className="flex flex-wrap gap-2">
 										{sitesNotRunYesterday.map((s) => (
 											<li key={s.id}>
-												<button
-													type="button"
-													onClick={() => setSelectedSite(s.id)}
-													className="px-3 py-1.5 rounded-lg bg-red-100 border border-red-200 text-red-800 text-xs font-bold uppercase tracking-wider hover:bg-red-200 transition-colors"
+												<Link
+													href={`/dashboard/${s.id}`}
+													className="px-3 py-1.5 rounded-lg bg-red-100 border border-red-200 text-red-800 text-xs font-bold uppercase tracking-wider hover:bg-red-200 transition-colors inline-block"
 												>
 													{s.name} ({s.id})
-												</button>
+												</Link>
 											</li>
 										))}
 									</ul>
@@ -703,10 +900,10 @@ export default function Dashboard() {
 									(x) => x.id === s.id,
 								)
 								return (
-									<button
+									<Link
 										key={s.id}
-										onClick={() => setSelectedSite(s.id)}
-										className={`bg-white rounded-xl border p-5 text-left hover:border-slate-900 transition-all group relative shadow-card ${
+										href={`/dashboard/${s.id}`}
+										className={`bg-white rounded-xl border p-5 text-left hover:border-slate-900 transition-all group relative shadow-card block ${
 											noRunYesterday
 												? "border-red-300 ring-1 ring-red-200"
 												: "border-slate-200"
@@ -781,7 +978,7 @@ export default function Dashboard() {
 												</span>
 											</div>
 										</div>
-									</button>
+									</Link>
 								)
 							})}
 						</div>
@@ -860,13 +1057,263 @@ export default function Dashboard() {
 		)
 	}
 
-	// --- SITE SPECIFIC DASHBOARD ---
-	if (!site || !health) return null
+	// Site-specific dashboard is at /dashboard/[siteId]
+	return null
+}
 
+export function DashboardSiteContent({ siteId }: { siteId: string }) {
+	const currentUser = useStore((state) => state.currentUser)
+	const sites = useStore((state) => state.sites)
+	const sessions = useStore((state) => state.sessions)
+	const badges = useStore((state) => state.badges)
+	const setBadges = useStore((state) => state.setBadges)
+	const [selectedDate, setSelectedDate] = useState(() => {
+		const now = new Date()
+		return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+	})
+	const [turnOffMissingSiteId, setTurnOffMissingSiteId] = useState<
+		string | null
+	>(null)
+	const [exporting, setExporting] = useState(false)
+	const [expandedBadgeStatusSiteId, setExpandedBadgeStatusSiteId] = useState<
+		string | null
+	>(null)
+	const [assignedAccounts, setAssignedAccounts] = useState<Profile[] | null>(
+		null,
+	)
+	useEffect(() => {
+		if (!siteId) return
+		if (currentUser?.role !== "admin") {
+			setAssignedAccounts([])
+			return
+		}
+		listLoggers().then((list) => {
+			if (!list) {
+				setAssignedAccounts([])
+				return
+			}
+			const assigned = list.filter(
+				(p) =>
+					!p.disabled &&
+					(p.role === "admin" || (p.assigned_site_ids ?? []).includes(siteId)),
+			)
+			setAssignedAccounts(assigned)
+		})
+	}, [currentUser?.role, siteId])
+	const site = useMemo(
+		() => sites.find((s) => s.id === siteId),
+		[sites, siteId],
+	)
+	const health = useMemo(() => {
+		if (!site) return null
+		return computeHealth(
+			{ sessions, badges, sites, selectedSite: siteId } as AppState,
+			siteId,
+			selectedDate,
+		)
+	}, [sessions, badges, sites, siteId, selectedDate, site])
+	const changeDate = (days: number) => {
+		const [y, m, d] = selectedDate.split("-").map(Number)
+		const date = new Date(y, m - 1, d)
+		date.setDate(date.getDate() + days)
+		setSelectedDate(
+			`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
+		)
+	}
+
+	const exportDailyReport = async () => {
+		if (!site || !health) return
+		setExporting(true)
+		try {
+			const tz = site.timeZone ?? DEFAULT_TIMEZONE
+			const daySessions = Object.values(sessions).filter(
+				(s) =>
+					s.siteId === siteId &&
+					getInventoryDayString(s.submittedAt || s.createdAt, tz) ===
+						selectedDate,
+			)
+			const ExcelJS = (await import("exceljs")).default
+			const wb = new ExcelJS.Workbook()
+			wb.creator = "Peraton Inventory"
+			const ws = wb.addWorksheet("Reconciliation Report", {
+				views: [{ state: "frozen", ySplit: 1 }],
+			})
+			ws.columns = [
+				{ width: 38 },
+				{ width: 18 },
+				{ width: 22 },
+				{ width: 12 },
+				{ width: 18 },
+				{ width: 14 },
+			]
+			const titleFont = { name: "Calibri", size: 16, bold: true }
+			const sectionFont = { name: "Calibri", size: 11, bold: true }
+			const headerFont = { name: "Calibri", size: 11, bold: true }
+			const sectionFill = {
+				type: "pattern" as const,
+				pattern: "solid" as const,
+				fgColor: { argb: "FFE2E8F0" },
+			}
+			const headerFill = {
+				type: "pattern" as const,
+				pattern: "solid" as const,
+				fgColor: { argb: "FFF1F5F9" },
+			}
+			const thinBorder = {
+				top: { style: "thin" as const },
+				left: { style: "thin" as const },
+				bottom: { style: "thin" as const },
+				right: { style: "thin" as const },
+			}
+			let row = 1
+			ws.mergeCells(row, 1, row, 5)
+			ws.getCell(row, 1).value = "Inventory Reconciliation Report"
+			ws.getCell(row, 1).font = titleFont
+			ws.getCell(row, 1).alignment = { vertical: "middle" }
+			row += 1
+			ws.getCell(row, 1).value = "Site:"
+			ws.getCell(row, 1).font = sectionFont
+			ws.getCell(row, 2).value = `${site.name} (${site.id})`
+			row += 1
+			ws.getCell(row, 1).value = "Date:"
+			ws.getCell(row, 1).font = sectionFont
+			ws.getCell(row, 2).value = selectedDate
+			row += 2
+			ws.mergeCells(row, 1, row, 3)
+			ws.getCell(row, 1).value = "Facility Summary"
+			ws.getCell(row, 1).font = sectionFont
+			ws.getCell(row, 1).fill = sectionFill
+			ws.getCell(row, 1).border = thinBorder
+			row += 1
+			const fidelityPct =
+				health.totalCount > 0
+					? ((health.presentCount / health.totalCount) * 100).toFixed(1)
+					: "0.0"
+			const summaryRows = [
+				["Total Registered Assets", health.totalCount],
+				["Reconciled Today", health.presentCount],
+				["Unreconciled", health.missingCount],
+				["Fidelity Rate", `${fidelityPct}%`],
+			]
+			summaryRows.forEach(([label, value]) => {
+				ws.getCell(row, 1).value = label
+				ws.getCell(row, 2).value = value
+				ws.getCell(row, 1).border = thinBorder
+				ws.getCell(row, 2).border = thinBorder
+				row += 1
+			})
+			row += 1
+			ws.mergeCells(row, 1, row, 5)
+			ws.getCell(row, 1).value = "Verification Logs"
+			ws.getCell(row, 1).font = sectionFont
+			ws.getCell(row, 1).fill = sectionFill
+			ws.getCell(row, 1).border = thinBorder
+			row += 1
+			const logHeaders = [
+				"Session ID",
+				"Account",
+				"Timestamp",
+				"Status",
+				"Unreconciled Count",
+			]
+			logHeaders.forEach((h, i) => {
+				const c = ws.getCell(row, i + 1)
+				c.value = h
+				c.font = headerFont
+				c.fill = headerFill
+				c.border = thinBorder
+			})
+			row += 1
+			daySessions.forEach((s) => {
+				const missingCount = Object.values(s.items).filter(
+					(i) => i.state === "missing",
+				).length
+				const timestamp = s.submittedAt
+					? formatLocalTime(s.submittedAt)
+					: "Draft"
+				const status = s.isSuperseded ? "Archived" : "Verified"
+				ws.getCell(row, 1).value = s.id
+				ws.getCell(row, 2).value = s.createdBy
+				ws.getCell(row, 3).value = timestamp
+				ws.getCell(row, 4).value = status
+				ws.getCell(row, 5).value = missingCount
+				;[1, 2, 3, 4, 5].forEach((col) => {
+					ws.getCell(row, col).border = thinBorder
+				})
+				row += 1
+			})
+			row += 1
+			ws.mergeCells(row, 1, row, 4)
+			ws.getCell(row, 1).value = "Unreconciled Assets (Status: Open)"
+			ws.getCell(row, 1).font = sectionFont
+			ws.getCell(row, 1).fill = sectionFill
+			ws.getCell(row, 1).border = thinBorder
+			row += 1
+			const assetHeaders = ["Asset Code", "Site", "Last Reported By", "Status"]
+			assetHeaders.forEach((h, i) => {
+				const c = ws.getCell(row, i + 1)
+				c.value = h
+				c.font = headerFont
+				c.fill = headerFill
+				c.border = thinBorder
+			})
+			row += 1
+			health.missingList.forEach((m) => {
+				ws.getCell(row, 1).value = m.badge.code
+				ws.getCell(row, 2).value = m.badge.siteId
+				ws.getCell(row, 3).value = m.guestName ?? ""
+				ws.getCell(row, 4).value = "UNACCOUNTED"
+				;[1, 2, 3, 4].forEach((col) => {
+					ws.getCell(row, col).border = thinBorder
+				})
+				row += 1
+			})
+			const buffer = await wb.xlsx.writeBuffer()
+			const blob = new Blob([buffer], {
+				type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			})
+			const url = URL.createObjectURL(blob)
+			const link = document.createElement("a")
+			link.href = url
+			link.setAttribute(
+				"download",
+				`Inventory_Report_${site.id}_${selectedDate}.xlsx`,
+			)
+			document.body.appendChild(link)
+			link.click()
+			document.body.removeChild(link)
+			URL.revokeObjectURL(url)
+		} finally {
+			setExporting(false)
+		}
+	}
+
+	const canAccess =
+		currentUser?.role === "admin" ||
+		currentUser?.assignedSiteIds?.includes(siteId)
+	if (!site || !health || !canAccess) {
+		return (
+			<AppLayout>
+				<div className="p-8">
+					<Link
+						href="/dashboard"
+						className="text-sm font-medium text-slate-600 hover:text-slate-900"
+					>
+						← Dashboard
+					</Link>
+					<p className="mt-4 text-slate-500">
+						{!site
+							? "Facility not found."
+							: "You don’t have access to this facility."}
+					</p>
+				</div>
+			</AppLayout>
+		)
+	}
 	const siteTz = site.timeZone ?? DEFAULT_TIMEZONE
 	const targetSessions = Object.values(sessions).filter(
 		(s) =>
-			s.siteId === selectedSite &&
+			s.siteId === siteId &&
 			getInventoryDayString(s.submittedAt || s.createdAt, siteTz) ===
 				selectedDate,
 	)
@@ -883,6 +1330,12 @@ export default function Dashboard() {
 			<div className="flex flex-col gap-10 bg-dots min-h-[calc(100vh-4rem)] -m-8 md:-m-10 p-8 md:p-10">
 				<div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
 					<div>
+						<Link
+							href="/dashboard"
+							className="text-sm font-medium text-slate-500 hover:text-slate-900 mb-3 inline-block"
+						>
+							← Dashboard
+						</Link>
 						<h1 className="text-3xl font-black text-slate-900 tracking-tighter leading-none mb-3">
 							Facility Inventory Report
 						</h1>
@@ -931,6 +1384,16 @@ export default function Dashboard() {
 							<Download className="w-4 h-4" />
 							{exporting ? "Exporting…" : "Export Report"}
 						</button>
+
+						{currentUser?.role === "admin" && (
+							<Link
+								href={`/admin/sites/${siteId}`}
+								className="flex items-center gap-3 bg-white border border-slate-200 px-6 py-3 rounded-xl shadow-card-sm hover:border-slate-900 transition-all text-xs font-black text-slate-600 uppercase tracking-widest"
+							>
+								<Tag className="w-4 h-4" />
+								View badges
+							</Link>
+						)}
 
 						{currentUser?.role !== "admin" && (
 							<Link
@@ -1032,16 +1495,160 @@ export default function Dashboard() {
 					</div>
 				</div>
 
+				{/* Badges + Assigned: two columns */}
+				<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+					<div className="bg-white rounded-xl border border-slate-200 shadow-card overflow-hidden">
+						<div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
+							<h2 className="font-bold text-slate-900 text-xs uppercase tracking-widest flex items-center gap-2">
+								<Tag className="w-4 h-4 text-slate-400" /> Badges
+							</h2>
+							{currentUser?.role === "admin" && (
+								<Link
+									href={`/admin/sites/${siteId}`}
+									className="text-[10px] font-bold text-slate-500 hover:text-slate-900 uppercase tracking-widest flex items-center gap-1"
+								>
+									Manage <ChevronRight className="w-3 h-3" />
+								</Link>
+							)}
+						</div>
+						<div className="overflow-y-auto max-h-[280px]">
+							{(() => {
+								const siteBadges = badges
+									.filter((b) => b.siteId === siteId)
+									.sort((a, b) => a.code.localeCompare(b.code))
+								if (siteBadges.length === 0) {
+									return (
+										<div className="p-6 text-center text-slate-500 text-sm">
+											No badges at this facility.
+										</div>
+									)
+								}
+								return (
+									<table className="w-full text-left">
+										<thead>
+											<tr className="border-b border-slate-100 bg-slate-50/50">
+												<th className="px-6 py-2.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+													Code
+												</th>
+												<th className="px-6 py-2.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+													Status
+												</th>
+											</tr>
+										</thead>
+										<tbody className="divide-y divide-slate-50">
+											{siteBadges.map((b) => (
+												<tr key={b.id} className="hover:bg-slate-50/50">
+													<td className="px-6 py-2.5 font-mono text-sm font-semibold text-slate-800">
+														{b.code}
+													</td>
+													<td className="px-6 py-2.5">
+														<span
+															className={`text-[10px] font-bold uppercase tracking-wider ${
+																b.active ? "text-teal-600" : "text-slate-400"
+															}`}
+														>
+															{b.active ? "On" : "Off"}
+														</span>
+													</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
+								)
+							})()}
+						</div>
+					</div>
+
+					<div className="bg-white rounded-xl border border-slate-200 shadow-card overflow-hidden">
+						<div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
+							<h2 className="font-bold text-slate-900 text-xs uppercase tracking-widest flex items-center gap-2">
+								<User className="w-4 h-4 text-slate-400" /> Assigned to this
+								facility
+							</h2>
+							{currentUser?.role === "admin" && (
+								<Link
+									href="/admin/loggers"
+									className="text-[10px] font-bold text-slate-500 hover:text-slate-900 uppercase tracking-widest flex items-center gap-1"
+								>
+									Accounts <ChevronRight className="w-3 h-3" />
+								</Link>
+							)}
+						</div>
+						<div className="overflow-y-auto max-h-[280px]">
+							{assignedAccounts === null ? (
+								<div className="p-6 text-center text-slate-400 text-sm">
+									Loading…
+								</div>
+							) : assignedAccounts.length === 0 ? (
+								<div className="p-6 text-center text-slate-500 text-sm">
+									{currentUser?.role === "admin"
+										? "No accounts assigned to this facility."
+										: "—"}
+								</div>
+							) : (
+								<ul className="divide-y divide-slate-50">
+									{assignedAccounts.map((p) => (
+										<li
+											key={p.id}
+											className="px-6 py-2.5 flex items-center justify-between gap-2"
+										>
+											<div className="min-w-0">
+												<p className="font-semibold text-slate-800 text-sm truncate">
+													{p.full_name || p.email}
+												</p>
+												<p className="text-[10px] text-slate-500 truncate">
+													{p.email}
+												</p>
+											</div>
+											<span
+												className={`shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+													p.role === "admin"
+														? "bg-slate-100 text-slate-600"
+														: "bg-slate-50 text-slate-500"
+												}`}
+											>
+												{p.role}
+											</span>
+										</li>
+									))}
+								</ul>
+							)}
+						</div>
+					</div>
+				</div>
+
 				<div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
 					<div className="lg:col-span-3 bg-white rounded-xl border border-slate-200 shadow-card overflow-hidden flex flex-col">
-						<div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-							<h2 className="font-bold text-slate-900 text-xs uppercase tracking-widest flex items-center gap-2">
-								<ShieldAlert className="w-4 h-4 text-slate-400" /> Unreconciled
-								Items
-							</h2>
-							<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest underline underline-offset-4 decoration-slate-200">
-								Inventory Status: Review
-							</span>
+						<div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
+							<div className="flex items-center gap-2">
+								<h2 className="font-bold text-slate-900 text-xs uppercase tracking-widest flex items-center gap-2">
+									<ShieldAlert className="w-4 h-4 text-slate-400" />{" "}
+									Unreconciled Items
+								</h2>
+								<span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest underline underline-offset-4 decoration-slate-200">
+									Inventory Status: Review
+								</span>
+							</div>
+							{health.missingCount > 0 && (
+								<button
+									type="button"
+									onClick={async () => {
+										setTurnOffMissingSiteId(siteId)
+										const res = await turnOffMissingBadgesForSite(siteId)
+										setTurnOffMissingSiteId(null)
+										if (res.ok && res.count > 0) {
+											const rows = await fetchBadges()
+											setBadges(badgeRowsToBadges(rows))
+										}
+									}}
+									disabled={turnOffMissingSiteId === siteId}
+									className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border-2 border-slate-200 text-slate-700 text-[10px] font-bold uppercase tracking-wider hover:bg-slate-100 disabled:opacity-60 transition-all"
+								>
+									{turnOffMissingSiteId === siteId
+										? "Turning off…"
+										: "Turn off all missing"}
+								</button>
+							)}
 						</div>
 						<div className="p-0 overflow-y-auto max-h-[480px]">
 							{health.missingList.length === 0 ? (
