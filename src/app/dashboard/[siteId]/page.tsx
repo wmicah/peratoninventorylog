@@ -1,7 +1,7 @@
 "use client"
 
 import { useParams } from "next/navigation"
-import { DashboardSiteContent } from "../page"
+import { DashboardSiteContent } from "../DashboardSiteContent"
 
 export default function DashboardSitePage() {
 	const params = useParams()

@@ -522,11 +522,11 @@ export async function listLoggers(): Promise<Profile[] | null> {
 		(result.error.message?.includes("disabled") ||
 			result.error.message?.includes("column"))
 	) {
-		result = await admin
+		result = (await admin
 			.from("profiles")
 			.select("id, email, full_name, role, assigned_site_ids")
 			.eq("role", "logger")
-			.order("full_name", { ascending: true })
+			.order("full_name", { ascending: true })) as typeof result
 	}
 
 	const data = result.error ? null : result.data
