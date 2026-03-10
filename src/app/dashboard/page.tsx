@@ -5,15 +5,12 @@ import { useStore, type AppState, formatBadgeLabel } from "@/lib/store"
 import { computeHealth } from "@/lib/inventoryLogic"
 import {
 	formatLocalTime,
-	getLocalDateString,
 	getInventoryDayString,
 	DEFAULT_TIMEZONE,
 } from "@/lib/time"
 import {
-	ArrowUpRight,
 	AlertCircle,
 	User,
-	ShieldCheck,
 	ShieldAlert,
 	History as HistoryIcon,
 	Activity,
@@ -23,14 +20,13 @@ import {
 	ChevronDown,
 	ClipboardCheck,
 	Plus,
-	Check,
 	ChevronLeft,
 	Calendar,
-	Download,
 	Tag,
 } from "lucide-react"
 import Link from "next/link"
-import { useState, useMemo, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
+import { useState, useMemo, useEffect, Suspense } from "react"
 import {
 	fetchBadges,
 	badgeRowsToBadges,
@@ -42,9 +38,17 @@ import {
 	runAutoOffWeekOldMissing,
 } from "@/app/actions/badges"
 import { purgeSessionsOlderThan5Years } from "@/app/actions/sessions"
-import { listLoggers, type Profile } from "@/app/actions/auth"
 
 export default function Dashboard() {
+	return (
+		<Suspense>
+			<DashboardInner />
+		</Suspense>
+	)
+}
+
+function DashboardInner() {
+	const searchParams = useSearchParams()
 	const [mounted, setMounted] = useState(false)
 	const currentUser = useStore((state) => state.currentUser)
 	const selectedSite = useStore((state) => state.selectedSite)
@@ -53,7 +57,6 @@ export default function Dashboard() {
 	const badges = useStore((state) => state.badges)
 	const setBadges = useStore((state) => state.setBadges)
 	const setSessions = useStore((state) => state.setSessions)
-	const setSelectedSite = useStore((state) => state.setSelectedSite)
 
 	useEffect(() => {
 		setMounted(true)
@@ -93,13 +96,11 @@ export default function Dashboard() {
 		const now = new Date()
 		return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
 	}
-	const getYesterdayLocal = () => {
-		const d = new Date()
-		d.setDate(d.getDate() - 1)
-		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-	}
-	const [selectedDate, setSelectedDate] = useState(getTodayLocal())
-	const [exporting, setExporting] = useState(false)
+	const [selectedDate, setSelectedDate] = useState(() => {
+		const fromUrl = searchParams.get("date")
+		if (fromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fromUrl)) return fromUrl
+		return getTodayLocal()
+	})
 	const [turnOffMissingSiteId, setTurnOffMissingSiteId] = useState<
 		string | null
 	>(null)
@@ -122,202 +123,14 @@ export default function Dashboard() {
 		)
 	}
 
-	const exportDailyReport = async () => {
-		if (!site || !health) return
-		setExporting(true)
-		try {
-			const tz = site?.timeZone ?? DEFAULT_TIMEZONE
-			// Get all sessions for this site on the selected day (in site's timezone)
-			const daySessions = Object.values(sessions).filter(
-				(s) =>
-					s.siteId === selectedSite &&
-					getInventoryDayString(s.submittedAt || s.createdAt, tz) ===
-						selectedDate,
-			)
-
-			const ExcelJS = (await import("exceljs")).default
-			const wb = new ExcelJS.Workbook()
-			wb.creator = "Peraton Inventory"
-			const ws = wb.addWorksheet("Reconciliation Report", {
-				views: [{ state: "frozen", ySplit: 1 }],
-			})
-
-			// Column widths
-			ws.columns = [
-				{ width: 38 },
-				{ width: 18 },
-				{ width: 22 },
-				{ width: 12 },
-				{ width: 18 },
-				{ width: 14 },
-			]
-
-			const titleFont = { name: "Calibri", size: 16, bold: true }
-			const sectionFont = { name: "Calibri", size: 11, bold: true }
-			const headerFont = { name: "Calibri", size: 11, bold: true }
-			const sectionFill = {
-				type: "pattern" as const,
-				pattern: "solid" as const,
-				fgColor: { argb: "FFE2E8F0" },
-			}
-			const headerFill = {
-				type: "pattern" as const,
-				pattern: "solid" as const,
-				fgColor: { argb: "FFF1F5F9" },
-			}
-			const thinBorder = {
-				top: { style: "thin" as const },
-				left: { style: "thin" as const },
-				bottom: { style: "thin" as const },
-				right: { style: "thin" as const },
-			}
-
-			let row = 1
-
-			// Title
-			ws.mergeCells(row, 1, row, 5)
-			ws.getCell(row, 1).value = "Inventory Reconciliation Report"
-			ws.getCell(row, 1).font = titleFont
-			ws.getCell(row, 1).alignment = { vertical: "middle" }
-			row += 1
-
-			ws.getCell(row, 1).value = "Site:"
-			ws.getCell(row, 1).font = sectionFont
-			ws.getCell(row, 2).value = `${site.name} (${site.id})`
-			row += 1
-			ws.getCell(row, 1).value = "Date:"
-			ws.getCell(row, 1).font = sectionFont
-			ws.getCell(row, 2).value = selectedDate
-			row += 2
-
-			// Facility Summary
-			ws.mergeCells(row, 1, row, 3)
-			ws.getCell(row, 1).value = "Facility Summary"
-			ws.getCell(row, 1).font = sectionFont
-			ws.getCell(row, 1).fill = sectionFill
-			ws.getCell(row, 1).border = thinBorder
-			row += 1
-
-			const fidelityPct =
-				health.totalCount > 0
-					? ((health.presentCount / health.totalCount) * 100).toFixed(1)
-					: "0.0"
-			const summaryRows = [
-				["Total Registered Assets", health.totalCount],
-				["Reconciled Today", health.presentCount],
-				["Unreconciled", health.missingCount],
-				["Fidelity Rate", `${fidelityPct}%`],
-			]
-			summaryRows.forEach(([label, value]) => {
-				ws.getCell(row, 1).value = label
-				ws.getCell(row, 2).value = value
-				ws.getCell(row, 1).border = thinBorder
-				ws.getCell(row, 2).border = thinBorder
-				row += 1
-			})
-			row += 1
-
-			// Verification Logs
-			ws.mergeCells(row, 1, row, 5)
-			ws.getCell(row, 1).value = "Verification Logs"
-			ws.getCell(row, 1).font = sectionFont
-			ws.getCell(row, 1).fill = sectionFill
-			ws.getCell(row, 1).border = thinBorder
-			row += 1
-
-			const logHeaders = [
-				"Session ID",
-				"Account",
-				"Timestamp",
-				"Status",
-				"Unreconciled Count",
-			]
-			logHeaders.forEach((h, i) => {
-				const c = ws.getCell(row, i + 1)
-				c.value = h
-				c.font = headerFont
-				c.fill = headerFill
-				c.border = thinBorder
-			})
-			row += 1
-
-			daySessions.forEach((s) => {
-				const missingCount = Object.values(s.items).filter(
-					(i) => i.state === "missing",
-				).length
-				const timestamp = s.submittedAt
-					? formatLocalTime(s.submittedAt)
-					: "Draft"
-				const status = s.isSuperseded ? "Archived" : "Verified"
-				ws.getCell(row, 1).value = s.id
-				ws.getCell(row, 2).value = s.createdBy
-				ws.getCell(row, 3).value = timestamp
-				ws.getCell(row, 4).value = status
-				ws.getCell(row, 5).value = missingCount
-				;[1, 2, 3, 4, 5].forEach((col) => {
-					ws.getCell(row, col).border = thinBorder
-				})
-				row += 1
-			})
-			row += 1
-
-			// Unreconciled Assets
-			ws.mergeCells(row, 1, row, 4)
-			ws.getCell(row, 1).value = "Unreconciled Assets (Status: Open)"
-			ws.getCell(row, 1).font = sectionFont
-			ws.getCell(row, 1).fill = sectionFill
-			ws.getCell(row, 1).border = thinBorder
-			row += 1
-
-			const assetHeaders = ["Asset Code", "Site", "Last Reported By", "Status"]
-			assetHeaders.forEach((h, i) => {
-				const c = ws.getCell(row, i + 1)
-				c.value = h
-				c.font = headerFont
-				c.fill = headerFill
-				c.border = thinBorder
-			})
-			row += 1
-
-			health.missingList.forEach((m) => {
-				ws.getCell(row, 1).value = m.badge.code
-				ws.getCell(row, 2).value = m.badge.siteId
-				ws.getCell(row, 3).value = m.guestName ?? ""
-				ws.getCell(row, 4).value = "UNACCOUNTED"
-				;[1, 2, 3, 4].forEach((col) => {
-					ws.getCell(row, col).border = thinBorder
-				})
-				row += 1
-			})
-
-			const buffer = await wb.xlsx.writeBuffer()
-			const blob = new Blob([buffer], {
-				type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-			})
-			const url = URL.createObjectURL(blob)
-			const link = document.createElement("a")
-			link.href = url
-			link.setAttribute(
-				"download",
-				`Inventory_Report_${site.id}_${selectedDate}.xlsx`,
-			)
-			document.body.appendChild(link)
-			link.click()
-			document.body.removeChild(link)
-			URL.revokeObjectURL(url)
-		} finally {
-			setExporting(false)
-		}
-	}
-
-	// Compute stats for ALL sites
+	// Compute stats for ALL sites, filtered to selected date
 	const globalStats = useMemo(() => {
 		if (!mounted) return null
 		return sites.map((s) => ({
 			site: s,
-			health: computeHealth({ sessions, badges, sites } as AppState, s.id),
+			health: computeHealth({ sessions, badges, sites } as AppState, s.id, selectedDate),
 		}))
-	}, [mounted, sessions, badges, sites])
+	}, [mounted, sessions, badges, sites, selectedDate])
 
 	const myRecentSessions = useMemo(() => {
 		if (!currentUser?.name || !mounted) return []
@@ -415,20 +228,6 @@ export default function Dashboard() {
 			accuracy: total > 0 ? (present / total) * 100 : 100,
 		}
 	}, [globalStats])
-
-	const site = useMemo(
-		() => sites.find((s) => s.id === selectedSite),
-		[sites, selectedSite],
-	)
-
-	const health = useMemo(() => {
-		if (!mounted || !selectedSite || selectedSite === "all") return null
-		return computeHealth(
-			{ sessions, badges, sites, selectedSite } as AppState,
-			selectedSite,
-			selectedDate,
-		)
-	}, [mounted, sessions, badges, sites, selectedSite, selectedDate])
 
 	if (!mounted) return null
 
@@ -765,6 +564,31 @@ export default function Dashboard() {
 								</span>
 							</div>
 						</div>
+
+						<div className="flex items-center bg-white border border-slate-200 rounded-xl p-1.5 shadow-card-sm">
+							<button
+								onClick={() => changeDate(-1)}
+								className="p-2 hover:bg-slate-50 rounded-lg transition-colors text-slate-400 hover:text-slate-900"
+							>
+								<ChevronLeft className="w-5 h-5" />
+							</button>
+							<div className="flex items-center gap-3 px-4 border-x border-slate-100">
+								<Calendar className="w-4 h-4 text-slate-400" />
+								<input
+									type="date"
+									value={selectedDate}
+									onChange={(e) => setSelectedDate(e.target.value)}
+									className="text-xs font-black text-slate-900 uppercase tracking-widest bg-transparent border-none focus:ring-0 p-0 cursor-pointer w-28"
+								/>
+							</div>
+							<button
+								onClick={() => changeDate(1)}
+								disabled={selectedDate >= getTodayLocal()}
+								className="p-2 hover:bg-slate-50 rounded-lg transition-colors text-slate-400 hover:text-slate-900 disabled:opacity-30 disabled:cursor-not-allowed"
+							>
+								<ChevronRight className="w-5 h-5" />
+							</button>
+						</div>
 					</div>
 
 					{/* Aggregated KPIs */}
@@ -861,7 +685,7 @@ export default function Dashboard() {
 										{sitesNotRunYesterday.map((s) => (
 											<li key={s.id}>
 												<Link
-													href={`/dashboard/${s.id}`}
+													href={`/dashboard/${s.id}?date=${selectedDate}`}
 													className="px-3 py-1.5 rounded-lg bg-red-100 border border-red-200 text-red-800 text-xs font-bold uppercase tracking-wider hover:bg-red-200 transition-colors inline-block"
 												>
 													{s.name} ({s.id})
@@ -902,7 +726,7 @@ export default function Dashboard() {
 								return (
 									<Link
 										key={s.id}
-										href={`/dashboard/${s.id}`}
+										href={`/dashboard/${s.id}?date=${selectedDate}`}
 										className={`bg-white rounded-xl border p-5 text-left hover:border-slate-900 transition-all group relative shadow-card block ${
 											noRunYesterday
 												? "border-red-300 ring-1 ring-red-200"

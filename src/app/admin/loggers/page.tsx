@@ -15,7 +15,6 @@ import {
 	UserPlus,
 	ShieldCheck,
 	Users,
-	Shield,
 	Loader2,
 	Pencil,
 	UserX,

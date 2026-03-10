@@ -28,15 +28,20 @@ import { fetchBadges, badgeRowsToBadges } from "@/lib/db"
 import { turnOffMissingBadgesForSite } from "@/app/actions/badges"
 import { listLoggers, type Profile } from "@/app/actions/auth"
 
-export function DashboardSiteContent({ siteId }: { siteId: string }) {
+function getTodayLocal() {
+	const now = new Date()
+	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+}
+
+export function DashboardSiteContent({ siteId, initialDate }: { siteId: string; initialDate?: string }) {
 	const currentUser = useStore((state) => state.currentUser)
 	const sites = useStore((state) => state.sites)
 	const sessions = useStore((state) => state.sessions)
 	const badges = useStore((state) => state.badges)
 	const setBadges = useStore((state) => state.setBadges)
 	const [selectedDate, setSelectedDate] = useState(() => {
-		const now = new Date()
-		return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+		if (initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)) return initialDate
+		return getTodayLocal()
 	})
 	const [turnOffMissingSiteId, setTurnOffMissingSiteId] = useState<
 		string | null
@@ -260,7 +265,7 @@ export function DashboardSiteContent({ siteId }: { siteId: string }) {
 			<AppLayout>
 				<div className="p-8">
 					<Link
-						href="/dashboard"
+						href={`/dashboard?date=${selectedDate}`}
 						className="text-sm font-medium text-slate-600 hover:text-slate-900"
 					>
 						← Dashboard
@@ -295,7 +300,7 @@ export function DashboardSiteContent({ siteId }: { siteId: string }) {
 				<div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
 					<div>
 						<Link
-							href="/dashboard"
+							href={`/dashboard?date=${selectedDate}`}
 							className="text-sm font-medium text-slate-500 hover:text-slate-900 mb-3 inline-block"
 						>
 							← Dashboard

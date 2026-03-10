@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx next:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(npm ls:*)",
+      "Bash(while read:*)",
+      "Bash(do echo:*)",
+      "Read(//c/Users/wmica/Desktop/peratoninventory/**)",
+      "Bash(done)"
+    ]
+  }
+}
