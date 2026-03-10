@@ -2,6 +2,19 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import { persistSession, persistBadge, deleteBadgeFromDb } from "@/lib/db"
 
+/** Last DB-persist error, surfaced to the UI so saves don't fail silently. */
+let _lastPersistError: string | null = null
+export function getLastPersistError() { return _lastPersistError }
+export function clearPersistError() { _lastPersistError = null }
+
+function handlePersistError(label: string) {
+	return (err: unknown) => {
+		const msg = err instanceof Error ? err.message : String(err)
+		console.error(`[store] ${label} failed:`, msg)
+		_lastPersistError = `${label}: ${msg}`
+	}
+}
+
 export type ItemState = "present" | "missing" | "not_checked"
 
 export interface Category {
@@ -253,7 +266,7 @@ export const useStore = create<AppState>()(
 						[id]: newSession,
 					},
 				}))
-				persistSession(newSession).catch(() => {})
+				persistSession(newSession).catch(handlePersistError("createSession"))
 				return id
 			},
 
@@ -280,7 +293,7 @@ export const useStore = create<AppState>()(
 							[badgeId]: newItem,
 						},
 					}
-					persistSession(updated).catch(() => {})
+					persistSession(updated).catch(handlePersistError("persistSession"))
 					return {
 						sessions: {
 							...state.sessions,
@@ -310,9 +323,9 @@ export const useStore = create<AppState>()(
 							supersededBy: sessionId,
 						}
 						updates[replaceSessionId] = superseded
-						persistSession(superseded).catch(() => {})
+						persistSession(superseded).catch(handlePersistError("persistSession"))
 					}
-					persistSession(submitted).catch(() => {})
+					persistSession(submitted).catch(handlePersistError("persistSession"))
 
 					return {
 						sessions: {
@@ -334,14 +347,14 @@ export const useStore = create<AppState>()(
 				set((state) => ({
 					badges: [...state.badges, badge],
 				}))
-				persistBadge(badge).catch(() => {})
+				persistBadge(badge).catch(handlePersistError("persistSession"))
 			},
 
 			removeBadge: (badgeId) => {
 				set((state) => ({
 					badges: state.badges.filter((b) => b.id !== badgeId),
 				}))
-				deleteBadgeFromDb(badgeId).catch(() => {})
+				deleteBadgeFromDb(badgeId).catch(handlePersistError("persistSession"))
 			},
 		}),
 		{

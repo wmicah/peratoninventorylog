@@ -16,7 +16,9 @@ import {
 	ChevronRight,
 	ChevronLeft,
 	Lock,
+	WifiOff,
 } from "lucide-react"
+import { getLastPersistError, clearPersistError } from "@/lib/store"
 
 export default function SessionInputPage() {
 	const router = useRouter()
@@ -32,6 +34,19 @@ export default function SessionInputPage() {
 	} = useStore()
 
 	const [showIncompleteModal, setShowIncompleteModal] = useState(false)
+	const [saveError, setSaveError] = useState<string | null>(null)
+
+	// Poll for persist errors (they happen async in the store)
+	useEffect(() => {
+		const interval = setInterval(() => {
+			const err = getLastPersistError()
+			if (err) {
+				setSaveError(err)
+				clearPersistError()
+			}
+		}, 1000)
+		return () => clearInterval(interval)
+	}, [])
 	const [showConflictModal, setShowConflictModal] = useState<string | null>(
 		null,
 	)
@@ -227,7 +242,22 @@ export default function SessionInputPage() {
 					</div>
 				</div>
 
-				{/* Current Tab Inventory */}
+				{/* Save Error Banner */}
+			{saveError && (
+				<div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+					<WifiOff className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+					<div className="flex-1">
+						<p className="text-sm font-bold text-red-800">Session not saving to database</p>
+						<p className="text-xs text-red-600 mt-1">{saveError}</p>
+						<p className="text-xs text-red-500 mt-1">Your work is saved locally but won&apos;t be visible to admins until this is resolved.</p>
+					</div>
+					<button onClick={() => setSaveError(null)} className="text-red-400 hover:text-red-600 text-sm font-bold">
+						Dismiss
+					</button>
+				</div>
+			)}
+
+			{/* Current Tab Inventory */}
 				<div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[400px]">
 					<div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
 						<h2 className="font-bold text-slate-900 text-lg">

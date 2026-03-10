@@ -237,32 +237,54 @@ export async function hydrateFromSupabase(store: {
 }
 
 export async function persistSession(session: Session): Promise<boolean> {
-	if (!hasSupabase()) return false
-	const { error } = await supabase.from("sessions").upsert(
-		{
-			id: session.id,
-			site_id: session.siteId,
-			created_at: session.createdAt,
-			submitted_at: session.submittedAt ?? null,
-			created_by: session.createdBy,
-			status: session.status,
-			is_superseded: session.isSuperseded,
-			superseded_by: session.supersededBy ?? null,
-			replaces: session.replaces ?? null,
-			items: session.items,
-			admin_notes: session.adminNotes ?? null,
-		},
-		{ onConflict: "id" },
-	)
+	if (!hasSupabase()) {
+		console.warn("[db] persistSession skipped: Supabase not configured")
+		throw new Error("Database not configured — session will only be saved locally")
+	}
+
+	const row: Record<string, unknown> = {
+		id: session.id,
+		site_id: session.siteId,
+		created_at: session.createdAt,
+		submitted_at: session.submittedAt ?? null,
+		created_by: session.createdBy,
+		status: session.status,
+		is_superseded: session.isSuperseded,
+		superseded_by: session.supersededBy ?? null,
+		replaces: session.replaces ?? null,
+		items: session.items,
+		admin_notes: session.adminNotes ?? null,
+	}
+
+	const { error } = await supabase
+		.from("sessions")
+		.upsert(row, { onConflict: "id" })
+
+	// If admin_notes column doesn't exist yet, retry without it
+	if (error?.message?.includes("admin_notes")) {
+		console.warn("[db] admin_notes column missing, retrying without it")
+		delete row.admin_notes
+		const retry = await supabase
+			.from("sessions")
+			.upsert(row, { onConflict: "id" })
+		if (retry.error) {
+			console.error("[db] persistSession error:", retry.error.message)
+			throw new Error(`Failed to save session: ${retry.error.message}`)
+		}
+		return true
+	}
+
 	if (error) {
-		console.warn("[db] persistSession error:", error.message)
-		return false
+		console.error("[db] persistSession error:", error.message, error)
+		throw new Error(`Failed to save session: ${error.message}`)
 	}
 	return true
 }
 
 export async function persistBadge(badge: Badge): Promise<boolean> {
-	if (!hasSupabase()) return false
+	if (!hasSupabase()) {
+		throw new Error("Database not configured — badge will only be saved locally")
+	}
 	const { error } = await supabase.from("badges").upsert(
 		{
 			id: badge.id,
@@ -278,8 +300,8 @@ export async function persistBadge(badge: Badge): Promise<boolean> {
 		{ onConflict: "id" },
 	)
 	if (error) {
-		console.warn("[db] persistBadge error:", error.message)
-		return false
+		console.error("[db] persistBadge error:", error.message, error)
+		throw new Error(`Failed to save badge: ${error.message}`)
 	}
 	return true
 }
